@@ -1,0 +1,10 @@
+Server
+	* Install nodejs in linux 
+	* npm install serve-static finalhandler hls express
+	* node serverhls.js
+Client
+	http://192.168.X.X:3000
+
+
+ 
+  
