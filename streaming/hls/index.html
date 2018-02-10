@@ -5,6 +5,7 @@
     var video = document.getElementById('video');
     var hls = new Hls();
     hls.loadSource('https://video-dev.github.io/streams/x36xhzz/x36xhzz.m3u8');
+    //hls.loadSource('hls/test.m3u8');
     hls.attachMedia(video);
     hls.on(Hls.Events.MANIFEST_PARSED,function() {
       video.play();
@@ -15,6 +16,7 @@
  // This is using the built-in support of the plain video element, without using hls.js.
   else if (video.canPlayType('application/vnd.apple.mpegurl')) {
     video.src = 'https://video-dev.github.io/streams/x36xhzz/x36xhzz.m3u8';
+    //video.src = 'hls/test.m3u8'
     video.addEventListener('canplay',function() {
       video.play();
     });

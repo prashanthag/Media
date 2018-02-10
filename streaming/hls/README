@@ -1,9 +1,16 @@
 Server
 	* Install nodejs in linux 
-	* npm install serve-static finalhandler hls express
-	* node serverhls.js
+	* npm install serve-static finalhandler hls.js express
+  * Produce encryption file
+    sh encrypt.sh
+  * run ffmpeg to covert RTSP stream into hls segments
+    ./ff.sh
+	* run the server
+      node serverhls.js
+
 Client
-	http://192.168.X.X:8000
+	* Access stream 
+    http://192.168.X.X:8000
 
 
  
