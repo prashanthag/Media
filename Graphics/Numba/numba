@@ -1,0 +1,4 @@
+conda install numba cudatoolkit pyculib
+
+samples:
+  https://github.com/ContinuumIO/gtc2017-numbahttps://github.com/ContinuumIO/gtc2017-numba
