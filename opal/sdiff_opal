@@ -1,0 +1,911 @@
+Index: src/h224/h281.cxx
+===================================================================
+--- src/h224/h281.cxx	(revision 33681)
++++ src/h224/h281.cxx	(working copy)
+@@ -627,17 +627,39 @@
+       break;
+ 
+     case H281_Frame::SelectVideoSource :
++    if (m_onSelectPreset.IsNULL()){
+       if (message.GetVideoSourceNumber() > 0)
+         m_localSourceId = VideoSourceIdsFromInt(message.GetVideoSourceNumber());
+-      OnSelectVideoSource(m_localCapability[m_localSourceId].m_name, message.GetVideoMode());
++        OnSelectVideoSource(m_localCapability[m_localSourceId].m_name, message.GetVideoMode());
++    }else{
++        int SelectPreset[3];
++        SelectPreset[0]=selectVideoSource;
++        SelectPreset[1]=VideoSourceIdsFromInt(message.GetVideoSourceNumber());
++        SelectPreset[2]=message.GetVideoMode();
++        m_onSelectPreset(*this, (P_INT_PTR)SelectPreset);
++    }
+       break;
+ 
+     case H281_Frame::StoreAsPreset :
++    if (m_onSelectPreset.IsNULL()){
+       OnStoreAsPreset(message.GetPresetNumber());
++    }else{
++        int SelectPreset[3];
++        SelectPreset[0]=storeAsPreset;
++        SelectPreset[1]=message.GetPresetNumber();
++        m_onSelectPreset(*this, (P_INT_PTR)SelectPreset);
++    }
+       break;
+ 
+     case H281_Frame::ActivatePreset :
++    if (m_onSelectPreset.IsNULL()){
+       OnActivatePreset(message.GetPresetNumber());
++    }else{
++        int SelectPreset[3];
++        SelectPreset[0]=activatePreset;
++        SelectPreset[1]=message.GetPresetNumber();
++        m_onSelectPreset(*this, (P_INT_PTR)SelectPreset);
++    }
+       break;
+ 
+     default :
+@@ -664,6 +686,11 @@
+ {
+   m_onAction = notifier;
+ }
++/*modopal*/
++void OpalH281Client::SetOnSelectPresetNotifier(const PNotifier & notifier)
++{
++  m_onSelectPreset = notifier;
++}
+ 
+ 
+ void OpalH281Client::OnSelectVideoSource(const PString & /*source*/, H281_Frame::VideoMode /*videoMode*/)
+@@ -801,8 +828,20 @@
+   PTRACE(3, "Video device " << device->GetDeviceName() << " not attached.");
+   return false;
+ }
++/*modopal*/
++bool OpalFarEndCameraControl::SelectVideoDeviceById(int sourceId,H281_Frame::VideoMode mode)
++{
++  PWaitAndSignal m(m_mutex);
+ 
++ if( sourceId < NumVideoSourceIds){
++      return SelectVideoSource(m_remoteCapability[sourceId].m_name, mode);
++  }
+ 
++  PTRACE(3, "Video device id "<<sourceId<<"does not exist ");
++  return false;
++}
++
++
+ void OpalFarEndCameraControl::OnStartAction(int directions[PVideoControlInfo::NumTypes])
+ {
+   PWaitAndSignal m(m_mutex);
+Index: src/h323/h323.cxx
+===================================================================
+--- src/h323/h323.cxx	(revision 33681)
++++ src/h323/h323.cxx	(working copy)
+@@ -4419,6 +4419,14 @@
+   switch (m_fastStartState) {
+     default : //FastStartDisabled :
+       SelectDefaultLogicalChannel(OpalMediaType::Audio(), H323Capability::DefaultAudioSessionID);
++#if OPAL_VIDEO
++      // Start video last so gets remaining bandwidth and not steal from other channels
++      if ((autoStartVideo&OpalMediaType::Transmit) != 0)
++        SelectDefaultLogicalChannel(OpalMediaType::Video(), H323Capability::DefaultVideoSessionID);
++      else {
++        PTRACE(4, "H245\tOnSelectLogicalChannels, video not auto-started");
++      }
++#endif
+ #if OPAL_T38_CAPABILITY
+       if ((autoStartFax&OpalMediaType::Transmit) != 0)
+         SelectDefaultLogicalChannel(OpalMediaType::Fax(), H323Capability::DefaultDataSessionID);
+@@ -4433,18 +4441,17 @@
+         PTRACE(4, "H245\tOnSelectLogicalChannels, H.224 camera control not auto-started");
+       }
+ #endif
+-#if OPAL_VIDEO
+-      // Start video last so gets remaining bandwidth and not steal from other channels
+-      if ((autoStartVideo&OpalMediaType::Transmit) != 0)
+-        SelectDefaultLogicalChannel(OpalMediaType::Video(), H323Capability::DefaultVideoSessionID);
+-      else {
+-        PTRACE(4, "H245\tOnSelectLogicalChannels, video not auto-started");
+-      }
+-#endif
+       break;
+ 
+     case FastStartInitiate :
+       SelectFastStartChannels(H323Capability::DefaultAudioSessionID, true, true);
++#if OPAL_VIDEO
++      // Start video last so gets remaining bandwidth and not steal from other channels
++      if (autoStartVideo != OpalMediaType::DontOffer)
++        SelectFastStartChannels(H323Capability::DefaultVideoSessionID,
++        (autoStartVideo&OpalMediaType::Transmit) != 0,
++        (autoStartVideo&OpalMediaType::Receive) != 0);
++#endif
+ #if OPAL_T38_CAPABILITY
+       if (autoStartFax != OpalMediaType::DontOffer)
+         SelectFastStartChannels(H323Capability::DefaultDataSessionID,
+@@ -4457,18 +4464,18 @@
+                                 (autoStartH224&OpalMediaType::Transmit) != 0,
+                                 (autoStartH224&OpalMediaType::Receive) != 0);
+ #endif
+-#if OPAL_VIDEO
+-      // Start video last so gets remaining bandwidth and not steal from other channels
+-      if (autoStartVideo != OpalMediaType::DontOffer)
+-        SelectFastStartChannels(H323Capability::DefaultVideoSessionID,
+-        (autoStartVideo&OpalMediaType::Transmit) != 0,
+-        (autoStartVideo&OpalMediaType::Receive) != 0);
+-#endif
+       break;
+ 
+     case FastStartResponse :
+       OpenFastStartChannel(H323Capability::DefaultAudioSessionID, H323Channel::IsTransmitter);
+       OpenFastStartChannel(H323Capability::DefaultAudioSessionID, H323Channel::IsReceiver);
++#if OPAL_VIDEO
++      // Start video last so gets remaining bandwidth and not steal from other channels
++      if ((autoStartVideo&OpalMediaType::Transmit) != 0)
++        OpenFastStartChannel(H323Capability::DefaultVideoSessionID, H323Channel::IsTransmitter);
++      if ((autoStartVideo&OpalMediaType::Receive) != 0)
++        OpenFastStartChannel(H323Capability::DefaultVideoSessionID, H323Channel::IsReceiver);
++#endif
+ #if OPAL_T38_CAPABILITY
+       if ((autoStartFax&OpalMediaType::Transmit) != 0)
+         OpenFastStartChannel(H323Capability::DefaultDataSessionID, H323Channel::IsTransmitter);
+@@ -4481,13 +4488,6 @@
+       if ((autoStartH224&OpalMediaType::Receive) != 0)
+         OpenFastStartChannel(GetNextSessionID(OpalH224MediaType(), true), H323Channel::IsReceiver);
+ #endif
+-#if OPAL_VIDEO
+-      // Start video last so gets remaining bandwidth and not steal from other channels
+-      if ((autoStartVideo&OpalMediaType::Transmit) != 0)
+-        OpenFastStartChannel(H323Capability::DefaultVideoSessionID, H323Channel::IsTransmitter);
+-      if ((autoStartVideo&OpalMediaType::Receive) != 0)
+-        OpenFastStartChannel(H323Capability::DefaultVideoSessionID, H323Channel::IsReceiver);
+-#endif
+       break;
+   }
+ }
+@@ -4541,15 +4541,21 @@
+     }
+   }
+ }
+-
+ void H323Connection::SendFlowControlCommand(unsigned channelNumber, unsigned newBitRate)
+ {
+   H323ControlPDU pdu;
+   pdu.BuildFlowControlCommand(channelNumber,newBitRate);
+   WriteControlPDU(pdu);
+ }
++/*modopal */
++void H323Connection::SendFlowControlIndication(unsigned channelNumber, unsigned newBitRate)
++{
++  H323ControlPDU pdu;
++  pdu.BuildFlowControlIndication(channelNumber,newBitRate);
+ 
+-
++  WriteControlPDU(pdu);
++}
++/*end modopal */
+ PBoolean H323Connection::OpenLogicalChannel(const H323Capability & capability,
+                                         unsigned sessionID,
+                                         H323Channel::Directions dir)
+@@ -5079,8 +5085,11 @@
+ void H323Connection::OnLogicalChannelFlowControl(H323Channel * channel,
+                                                  long bitRateRestriction)
+ {
+-  if (channel != NULL)
++  if (channel != NULL){
+     channel->OnFlowControl(bitRateRestriction);
++    /*modopal*/
++    SendFlowControlIndication(channel->GetNumber(),bitRateRestriction);
++  }
+ }
+ 
+ 
+Index: src/h323/h323pdu.cxx
+===================================================================
+--- src/h323/h323pdu.cxx	(revision 33681)
++++ src/h323/h323pdu.cxx	(working copy)
+@@ -1753,8 +1753,23 @@
+  
+   return flowControlCommand;
+ }
++/*modopal*/
++H245_FlowControlIndication & H323ControlPDU::BuildFlowControlIndication(unsigned channelNumber, unsigned maxBitRate)
++{
++  H245_FlowControlIndication & flowControlIndication = Build(H245_IndicationMessage::e_flowControlIndication);
++  flowControlIndication .m_scope.SetTag(H245_FlowControlIndication_scope::e_logicalChannelNumber);
++  PASN_Integer & logChanNumPDU = flowControlIndication.m_scope;
++  logChanNumPDU = channelNumber;
+ 
++  flowControlIndication .m_restriction.SetTag(H245_FlowControlIndication_restriction::e_maximumBitRate);
++  PASN_Integer & maxBitRatePDU = flowControlIndication .m_restriction;
++  maxBitRatePDU = maxBitRate;
++ 
++  return flowControlIndication;
++}
++/*end modopal*/
+ 
++
+ H245_MiscellaneousIndication & H323ControlPDU::BuildMiscellaneousIndication(unsigned channelNumber, unsigned type)
+ {
+   H245_MiscellaneousIndication & miscIndication = Build(H245_IndicationMessage::e_miscellaneousIndication);
+Index: src/h323/channels.cxx
+===================================================================
+--- src/h323/channels.cxx	(revision 33681)
++++ src/h323/channels.cxx	(working copy)
+@@ -376,6 +376,14 @@
+   if (GetDirection() == IsTransmitter) {
+     OpalMediaFormat mediaFormat = GetMediaFormat();
+     bandwidth = mediaFormat.GetOptionInteger(OpalMediaFormat::TargetBitRateOption());
++    /*modopal 
++     * Issue poylcomHDX9004-opal call 
++     * Tx bandwidth should not be divided among many channels
++     * just send individual maximum bandwidth otherwise polycom hdx rejects channel either video or h224
++     * as opal does not provide exact max bit rate asked. so set available bandwidth always target bandwtdh
++     **/
++    //connection.SetBandwidthAvailable(OpalBandwidth::Tx,bandwidth); //modopal line added
++
+     OpalBandwidth available = connection.GetBandwidthAvailable(OpalBandwidth::Tx);
+     if (bandwidth > available) {
+       PTRACE(3, "LogChan", "Adjusting " << GetNumber() << ' ' << capability->GetMediaFormat()
+Index: src/h323/h235dh.cxx
+===================================================================
+--- src/h323/h235dh.cxx	(revision 33681)
++++ src/h323/h235dh.cxx	(working copy)
+@@ -139,9 +139,11 @@
+   PINDEX          m_groupBits;
+   const uint8_t * m_modulus;
+ } const DHGroup[] = {
+-  { "2.16.840.1.101.3.4.1.2",  "0.0.8.235.0.3.43", 1024, DH1024_P },
+-  { "2.16.840.1.101.3.4.1.22", "0.0.8.235.0.3.45", 2048, DH2048_P },
+-  { "2.16.840.1.101.3.4.1.42", "0.0.8.235.0.3.47", 4096, DH4096_P }
++  { "2.16.840.1.101.3.4.1.2",  "0.0.8.235.0.3.43", 1024, DH1024_P }
++  /*modopal poly-hdx 9004 - avacx call fail due to DH2048  is enabled 
++   * for AES 128 bit so commenting temporarily  AES-196 and AES-256 bit*/
++  //{ "2.16.840.1.101.3.4.1.22", "0.0.8.235.0.3.45", 2048, DH2048_P },
++  //{ "2.16.840.1.101.3.4.1.42", "0.0.8.235.0.3.47", 4096, DH4096_P }
+ };
+ 
+ static PConstString const H235Version3("0.0.8.235.0.3.24");
+Index: src/opal/endpoint.cxx
+===================================================================
+--- src/opal/endpoint.cxx	(revision 33681)
++++ src/opal/endpoint.cxx	(working copy)
+@@ -57,7 +57,7 @@
+   : manager(mgr)
+   , prefixName(prefix)
+   , m_attributes(attributes)
+-  , m_maxSizeUDP(4096)
++  , m_maxSizeUDP(8192)
+   , productInfo(mgr.GetProductInfo())
+   , defaultLocalPartyName(manager.GetDefaultUserName())
+   , defaultDisplayName(manager.GetDefaultDisplayName())
+Index: src/opal/mediastrm.cxx
+===================================================================
+--- src/opal/mediastrm.cxx	(revision 33681)
++++ src/opal/mediastrm.cxx	(working copy)
+@@ -258,9 +258,11 @@
+   UnlockReadWrite();
+ 
+   connection.OnClosedMediaStream(*this);
++  
++  PTRACE(4, "Media\t SetPatch NULL  " << *this);
+   SetPatch(NULL);
+ 
+-  PTRACE(5, "Media\tClosed stream " << *this);
++  PTRACE(4, "Media\tClosed stream " << *this);
+ 
+   connection.RemoveMediaStream(*this);
+   // Don't do anything after above as object may be deleted
+@@ -1306,9 +1308,10 @@
+             "frameTime=" << frameTime << ", "
+             "clock=" << mediaFormat.GetClockRate() << ", "
+             "buffers=" << bufferCount << 'x' << frameSize);
+-
++  /*modopal*/
++  int bufSize=(frameSize>dataSize)?frameSize:dataSize;
+   return OpalMediaStream::SetDataSize(adjustedSize, frameTime) &&
+-         ((PSoundChannel *)m_channel)->SetBuffers(frameSize, bufferCount);
++         ((PSoundChannel *)m_channel)->SetBuffers(bufSize, bufferCount);
+ }
+ 
+ 
+Index: src/opal/connection.cxx
+===================================================================
+--- src/opal/connection.cxx	(revision 33681)
++++ src/opal/connection.cxx	(working copy)
+@@ -867,6 +867,8 @@
+     for (OpalMediaStreamPtr mediaStream(mediaStreams, PSafeReference); mediaStream != NULL; ++mediaStream) {
+       if (mediaStream->IsOpen()) {
+         someOpen = true;
++        PTRACE(4, "Media stream closing.");
++
+         mediaStream->Close();
+       }
+     }
+Index: src/opal/patch.cxx
+===================================================================
+--- src/opal/patch.cxx	(revision 33681)
++++ src/opal/patch.cxx	(working copy)
+@@ -65,6 +65,7 @@
+   PTRACE(5, "Patch\tCreated media patch " << this << ", session " << src.GetSessionID());
+   src.SetPatch(this);
+   m_source.SafeReference();
++  m_SafeRWLock=m_SafeRLock=0;
+ }
+ 
+ 
+@@ -72,7 +73,7 @@
+ {
+   StopThread();
+   m_source.SafeDereference();
+-  PTRACE(5, "Patch\tDestroyed media patch " << this);
++  PTRACE(4, "Patch\tDestroyed media patch " << this);
+ }
+ 
+ 
+@@ -175,7 +176,9 @@
+     PAssert(thread->WaitForTermination(10000), "Media patch thread not terminated.");
+   }
+ 
++  PTRACE(4, "Patch\tDeleting thread  " << *this);
+   delete thread;
++  PTRACE(4, "Patch\tDeleted  thread  " << *this);
+ }
+ 
+ 
+@@ -183,8 +186,9 @@
+ {
+   PTRACE(3, "Patch\tClosing media patch " << *this);
+ 
+-  if (!LockReadWrite())
+-    return;
++#if 0
++  if (!LockReadWrite()) //pgowda
++      return;
+ 
+   if (m_bypassFromPatch != NULL)
+     m_bypassFromPatch->SetBypassPatch(NULL);
+@@ -208,10 +212,11 @@
+       // Se we unlock it, and wait for it to do it in the other thread.
+       PThread::Sleep(10);
+     }
+-    if (!LockReadWrite())
++    if (!LockReadWrite())/*TODO locking in while loop !!!*/
+       return;
+   }
+   UnlockReadWrite();
++#endif
+ 
+   StopThread();
+ }
+@@ -220,23 +225,29 @@
+ PBoolean OpalMediaPatch::AddSink(const OpalMediaStreamPtr & sinkStream)
+ {
+   PSafeLockReadWrite mutex(*this);
+-
+-  if (PAssertNULL(sinkStream) == NULL)
++    m_SafeRWLock++;
++  if (PAssertNULL(sinkStream) == NULL){
++    m_SafeRWLock--;
+     return false;
++  }
+ 
+   PAssert(sinkStream->IsSink(), "Attempt to set source stream as sink!");
+ 
+   if (!sinkStream->SetPatch(this)) {
+     PTRACE(2, "Patch\tCould not set patch in stream " << *sinkStream);
++    m_SafeRWLock--;
+     return false;
+   }
+ 
+   Sink * sink = new Sink(*this, sinkStream);
+   m_sinks.Append(sink);
+-  if (!sink->CreateTranscoders())
++  if (!sink->CreateTranscoders()){
++    m_SafeRWLock--;
+     return false;
++  }
+ 
+   EnableJitterBuffer();
++  m_SafeRWLock--;
+   return true;
+ }
+ 
+@@ -244,13 +255,17 @@
+ bool OpalMediaPatch::ResetTranscoders()
+ {
+   PSafeLockReadWrite mutex(*this);
++    m_SafeRWLock++;
+ 
+   for (PList<Sink>::iterator s = m_sinks.begin(); s != m_sinks.end(); ++s) {
+-    if (!s->CreateTranscoders())
++    if (!s->CreateTranscoders()){
++    m_SafeRWLock--;
+       return false;
++    }
+   }
+ 
+   m_transcoderChanged = true;
++    m_SafeRWLock--;
+   return true;
+ }
+ 
+@@ -382,15 +397,16 @@
+ {
+   PTRACE(3, "Patch\tRemoving sink " << stream << " from " << *this);
+ 
++ // return ;//deadlock pgowda
+   bool closeSource = false;
+ 
+-  if (!LockReadWrite())
+-    return;
++  //if (!LockReadWrite())//pgowda
++  //  return;
+ 
+   for (PList<Sink>::iterator s = m_sinks.begin(); s != m_sinks.end(); ++s) {
+     if (s->m_stream == &stream) {
+       m_sinks.erase(s);
+-      PTRACE(5, "Patch\tRemoved sink " << stream << " from " << *this);
++      PTRACE(4, "Patch\tRemoved sink " << stream << " from " << *this);
+       break;
+     }
+   }
+@@ -401,10 +417,11 @@
+       m_bypassFromPatch->SetBypassPatch(NULL);
+   }
+ 
+-  UnlockReadWrite();
++  //UnlockReadWrite();
+ 
+   if (closeSource  && m_source.GetPatch() == this)
+     m_source.Close();
++  PTRACE(3, "Patch\tRemoved sink " << stream << " from " << *this);
+ }
+ 
+ 
+@@ -530,6 +547,7 @@
+ void OpalMediaPatch::AddFilter(const PNotifier & filter, const OpalMediaFormat & stage)
+ {
+   PSafeLockReadWrite mutex(*this);
++    m_SafeRWLock++;
+ 
+   if (m_source.GetMediaFormat().GetMediaType() != stage.GetMediaType())
+     return;
+@@ -538,25 +556,35 @@
+   for (PList<Filter>::iterator f = m_filters.begin(); f != m_filters.end(); ++f) {
+     if (f->m_notifier == filter && f->m_stage == stage) {
+       PTRACE(4, "OpalCon\tFilter already added for stage " << stage);
++    m_SafeRWLock--;
+       return;
+     }
+   }
+   m_filters.Append(new Filter(filter, stage));
++    m_SafeRWLock--;
+ }
+ 
+ 
+ PBoolean OpalMediaPatch::RemoveFilter(const PNotifier & filter, const OpalMediaFormat & stage)
+ {
++ 
++ return true;//deadlock //pgowda
++ PTRACE(4, "OpalCon\t Trying to lock PSafeLockReadWrite in RemoveFilter  RWLock: " << m_SafeRWLock << " RLock: "<<m_SafeRLock);
+   PSafeLockReadWrite mutex(*this);
++    m_SafeRWLock++;
++  
++  PTRACE(4, "OpalCon\t locked PSafeLockReadWrite in RemoveFilter ");
+ 
+   for (PList<Filter>::iterator f = m_filters.begin(); f != m_filters.end(); ++f) {
+     if (f->m_notifier == filter && f->m_stage == stage) {
+       m_filters.erase(f);
++    m_SafeRWLock--;
+       return true;
+     }
+   }
+ 
+   PTRACE(4, "OpalCon\tNo filter to remove for stage " << stage);
++    m_SafeRWLock--;
+   return false;
+ }
+ 
+@@ -579,6 +607,7 @@
+ bool OpalMediaPatch::UpdateMediaFormat(const OpalMediaFormat & mediaFormat)
+ {
+   PSafeLockReadOnly mutex(*this);
++    m_SafeRLock--;
+ 
+   bool atLeastOne = m_source.InternalUpdateMediaFormat(mediaFormat);
+ 
+@@ -590,6 +619,7 @@
+   }
+ 
+   PTRACE_IF(2, !atLeastOne, "Patch\tCould not update media format for any stream/transcoder in " << *this);
++    m_SafeRLock--;
+   return atLeastOne;
+ }
+ 
+@@ -665,6 +695,7 @@
+ bool OpalMediaPatch::InternalSetPaused(bool pause, bool fromUser)
+ {
+   PSafeLockReadOnly mutex(*this);
++    m_SafeRLock++;
+ 
+   bool atLeastOne = m_source.InternalSetPaused(pause, fromUser, true);
+ 
+@@ -673,6 +704,7 @@
+       atLeastOne = true;
+   }
+ 
++  m_SafeRLock--;
+   return atLeastOne;
+ }
+ 
+@@ -691,6 +723,7 @@
+ bool OpalMediaPatch::EnableJitterBuffer(bool enab)
+ {
+   PSafeLockReadOnly mutex(*this);
++    m_SafeRLock++;
+ 
+   if (m_bypassToPatch != NULL)
+     enab = false;
+@@ -699,15 +732,19 @@
+   for (s = m_sinks.begin(); s != m_sinks.end(); ++s) {
+     if (s->m_stream->EnableJitterBuffer(enab)) {
+       m_source.EnableJitterBuffer(false);
++    m_SafeRLock--;
+       return true;
+     }
+   }
+ 
+   for (s = m_sinks.begin(); s != m_sinks.end(); ++s) {
+-    if (m_source.EnableJitterBuffer(enab && s->m_stream->IsSynchronous()))
++    if (m_source.EnableJitterBuffer(enab && s->m_stream->IsSynchronous())){
++    m_SafeRLock--;
+       return true;
++    }
+   }
+ 
++    m_SafeRLock--;
+   return false;
+ }
+ 
+@@ -796,19 +833,28 @@
+ 
+ bool OpalMediaPatch::SetBypassPatch(const OpalMediaPatchPtr & patch)
+ {
+-  PSafeLockReadWrite mutex(*this);
++  PSafeLockReadWrite mutex(*this); //pgowda
++    m_SafeRWLock++;
+ 
+-  if (!PAssert(m_bypassFromPatch == NULL, PLogicError))
+-    return false; // Can't be both!
++  if (!PAssert(m_bypassFromPatch == NULL, PLogicError)){
++    m_SafeRWLock--;
++   
++      return false; // Can't be both!
++  }
+ 
+-  if (m_bypassToPatch == patch)
++  if (m_bypassToPatch == patch){
++    m_SafeRWLock--;
++      
+     return true; // Already set
++  }
+ 
+   PTRACE(4, "Patch\tSetting media patch bypass to " << patch << " on " << *this);
+ 
+   if (m_bypassToPatch != NULL) {
+-    if (!PAssert(m_bypassToPatch->m_bypassFromPatch == this, PLogicError))
++    if (!PAssert(m_bypassToPatch->m_bypassFromPatch == this, PLogicError)){
++     m_SafeRWLock--;
+       return false;
++    }
+ 
+     m_bypassToPatch->m_bypassFromPatch.SetNULL();
+     m_bypassToPatch->m_bypassEnded.Signal();
+@@ -818,8 +864,10 @@
+   }
+ 
+   if (patch != NULL) {
+-    if (!PAssert(patch->m_bypassFromPatch == NULL, PLogicError))
++    if (!PAssert(patch->m_bypassFromPatch == NULL, PLogicError)){
++        m_SafeRWLock--;
+       return false;
++    }
+ 
+     patch->m_bypassFromPatch = this;
+   }
+@@ -839,6 +887,7 @@
+     patch->EnableJitterBuffer(false);
+   }
+ 
++    m_SafeRWLock--;
+   return true;
+ }
+ 
+Index: src/sip/sdp.cxx
+===================================================================
+--- src/sip/sdp.cxx	(revision 33681)
++++ src/sip/sdp.cxx	(working copy)
+@@ -423,6 +423,7 @@
+   if (m_encodingName.IsEmpty())
+     m_encodingName = m_mediaFormat.GetEncodingName();
+ 
++
+   if (m_mediaFormat.IsEmpty()) {
+     PTRACE(5, "SDP\tMatching \"" << m_encodingName << "\", pt=" << m_payloadType << ", clock=" << m_clockRate);
+     for (OpalMediaFormatList::const_iterator iterFormat = mediaFormats.FindFormat(m_payloadType, m_clockRate, m_encodingName, "sip");
+@@ -430,19 +431,42 @@
+          iterFormat = mediaFormats.FindFormat(m_payloadType, m_clockRate, m_encodingName, "sip", iterFormat)) {
+       OpalMediaFormat adjustedFormat = *iterFormat;
+       SetMediaFormatOptions(adjustedFormat);
++      /*modopal*/
++      /*TODO Here special care is taken to avoid H.264-high getting matched H.264-1/0 */
++      PStringArray tokens=m_fmtp.Tokenise(';',false);
++      PStringArray value =tokens[0].Tokenise('=',false);
++      if("profile-level-id"==value[0]){
++          int pos,len;
++          PTRACE(4,value[0]<<" = "<<value[1]);
++          if (value[1].FindRegEx("42",pos,len)){
++              PTRACE(4,"Baseline profile");
++              if (*iterFormat=="H.264-High"){
++                PTRACE(4,"H.264 Baseline profile did not match with High profile");
++                continue;
++              }
++          }
++          if (value[1].FindRegEx("64",pos,len)){
++              PTRACE(4,"High profile");
++              if (*iterFormat!="H.264-High"){
++                PTRACE(4,"H.264 High profile did not match with Baseline profile");
++                continue;
++              }
++          }
++      }
++      /*end modopal*/
+       // skip formats whose fmtp don't match options
+       if (iterFormat->ValidateMerge(adjustedFormat)) {
+-        PTRACE(3, "SDP\tMatched payload type " << m_payloadType << " to " << *iterFormat);
+         m_mediaFormat = adjustedFormat;
++        PTRACE(3, "SDP\tMatched payload type " << m_payloadType << " to " << *iterFormat<<" formatName: "<<m_mediaFormat.GetName());
+         break;
+       }
+ 
+-      PTRACE(4, "SDP\tDid not match \"" << m_encodingName << "\", pt=" << m_payloadType
++      PTRACE(4, "SDP\tDid not match \"" << m_encodingName <<"\", pt=" << m_payloadType
+              << ", clock=" << m_clockRate << " fmtp=\"" << m_fmtp << "\" to " << *iterFormat);
+     }
+ 
+     if (m_mediaFormat.IsEmpty()) {
+-      PTRACE(2, "SDP\tCould not find media format for \"" << m_encodingName << "\", "
++      PTRACE(2, "SDP\tCould not find media format for \"" << m_encodingName<< "\", "
+                 "pt=" << m_payloadType << ", clock=" << m_clockRate << " fmtp=\"" << m_fmtp << '"');
+       return false;
+     }
+Index: src/ep/localep.cxx
+===================================================================
+--- src/ep/localep.cxx	(revision 33681)
++++ src/ep/localep.cxx	(working copy)
+@@ -652,6 +652,24 @@
+ {
+   m_farEndCameraControl->SetOnActionNotifier(notifier);
+ }
++/*modopal*/
++void OpalLocalConnection::SetFarEndCameraSelectPresetNotifier(const PNotifier & notifier)
++{
++  m_farEndCameraControl->SetOnSelectPresetNotifier(notifier);
++}
++void OpalLocalConnection::ActivatePreset(BYTE presetNumber)
++{
++  m_farEndCameraControl->ActivatePreset(presetNumber);
++}
++void OpalLocalConnection::StoreAsPreset(BYTE presetNumber)
++{
++  m_farEndCameraControl->StoreAsPreset(presetNumber);
++}
++void OpalLocalConnection::SelectVideoSource(int sourceId,H281_Frame::VideoMode mode)
++{
++  bool ret=m_farEndCameraControl->SelectVideoDeviceById(sourceId, mode);
++}
++/*end modopal*/
+ #endif // OPAL_HAS_H281
+ 
+ 
+Index: src/rtp/rtp_session.cxx
+===================================================================
+--- src/rtp/rtp_session.cxx	(revision 33681)
++++ src/rtp/rtp_session.cxx	(working copy)
+@@ -60,8 +60,8 @@
+ #define RTP_AUDIO_RX_BUFFER_SIZE 0x4000   // 16kb
+ #define RTP_DATA_TX_BUFFER_SIZE  0x2000   // 8kb
+ #define RTP_CTRL_BUFFER_SIZE     0x1000   // 4kb
++#define RTP_UNREACHABLE_SECONDS  5
+ 
+-
+ /////////////////////////////////////////////////////////////////////////////
+ /**A descendant of the OpalJitterBuffer that reads RTP_DataFrame instances
+    from the OpalRTPSession
+@@ -141,7 +141,7 @@
+   , m_timeUnits(m_isAudio ? 8 : 90)
+   , m_toolName(PProcess::Current().GetName())
+   , m_maxNoReceiveTime(init.m_connection.GetEndPoint().GetManager().GetNoMediaTimeout())
+-  , m_maxNoTransmitTime(0, 10)          // Sending data for 10 seconds, ICMP says still not there
++  , m_maxNoTransmitTime(0, RTP_UNREACHABLE_SECONDS)          // Sending data for 10 seconds, ICMP says still not there //modopal pgowda
+ #if OPAL_RTP_FEC
+   , m_redundencyPayloadType(RTP_DataFrame::IllegalPayloadType)
+   , m_ulpFecPayloadType(RTP_DataFrame::IllegalPayloadType)
+@@ -2211,7 +2211,7 @@
+     return true;
+   }
+ 
+-  if (m_noTransmitErrors < 10 || m_noTransmitTimer.IsRunning())
++  if (m_noTransmitErrors < RTP_UNREACHABLE_SECONDS || m_noTransmitTimer.IsRunning())
+     return true;
+ 
+   PTRACE(2, "RTP_UDP\tSession " << m_sessionId << ", " << channelName << ' '
+Index: include/h224/h281handler.h
+===================================================================
+--- include/h224/h281handler.h	(revision 33681)
++++ include/h224/h281handler.h	(working copy)
+@@ -71,6 +71,11 @@
+       UserDefinedSourceId10
+     );
+ 
++  enum SelectPresetType {
++    selectVideoSource        = 0x00,
++    storeAsPreset            = 0x01,
++    activatePreset           = 0x02
++  };
+     // Predefined source names
+     static const PConstString & MainCamera();
+     static const PConstString & AuxiliaryCamera();
+@@ -106,7 +111,6 @@
+       const PString & source,
+       H281_Frame::VideoMode mode = H281_Frame::MotionVideo
+     );
+-
+     /** Tells the remote side to store the current camera settings as a preset
+       with the preset number given
+      */
+@@ -163,6 +167,8 @@
+        A NULL pointer indicates that the action has stopped for all types.
+       */
+     void SetOnActionNotifier(const PNotifier & notifier);
++    /*modopal*/
++    void SetOnSelectPresetNotifier(const PNotifier & notifier);
+ 
+     struct Capability
+     {
+@@ -211,6 +217,7 @@
+ 
+     PNotifier      m_capabilityChanged;
+     PNotifier      m_onAction;
++    PNotifier      m_onSelectPreset;
+ 
+     VideoSourceIds m_localSourceId;
+     Capability     m_localCapability[NumVideoSourceIds];
+@@ -247,6 +254,8 @@
+       PVideoInputDevice * device,
+       H281_Frame::VideoMode mode = H281_Frame::MotionVideo
+     );
++    /*modopal*/
++    bool SelectVideoDeviceById(int sourceId, H281_Frame::VideoMode mode);
+ 
+     virtual void OnStartAction(int directions[PVideoControlInfo::NumTypes]);
+     virtual void OnStopAction();
+Index: include/h323/h323ep.h
+===================================================================
+--- include/h323/h323ep.h	(revision 33681)
++++ include/h323/h323ep.h	(working copy)
+@@ -1115,7 +1115,8 @@
+       PIPSocket::Address & localAddr,
+       const PIPSocket::Address & remoteAddr
+     );
+-
++    void  SetSignallingChannelCallTimeout(const PTimeInterval & t)  { signallingChannelCallTimeout = t; }
++ 
+     /**Get the default timeout for calling another endpoint.
+      */
+     const PTimeInterval & GetSignallingChannelCallTimeout() const { return signallingChannelCallTimeout; }
+Index: include/h323/h323con.h
+===================================================================
+--- include/h323/h323con.h	(revision 33681)
++++ include/h323/h323con.h	(working copy)
+@@ -1419,7 +1419,11 @@
+       unsigned channelNumber,
+       unsigned newBitRate
+     );
+-    
++   /*modopal*/ 
++    virtual void SendFlowControlIndication(
++      unsigned channelNumber,
++      unsigned newBitRate
++    );
+     /**This function is called when the remote endpoint want's to open
+        a new channel.
+ 
+Index: include/h323/h323pdu.h
+===================================================================
+--- include/h323/h323pdu.h	(revision 33681)
++++ include/h323/h323pdu.h	(working copy)
+@@ -361,7 +361,13 @@
+       unsigned channelNumber, 
+       unsigned maxBitRate
+     );
++    /*modopal*/
++    H245_FlowControlIndication & BuildFlowControlIndication(
++      unsigned channelNumber,
++      unsigned maxBitRate
++     );
+ 
++
+     H245_MiscellaneousIndication & BuildMiscellaneousIndication(
+       unsigned channelNumber,
+       unsigned type
+Index: include/opal/patch.h
+===================================================================
+--- include/opal/patch.h	(revision 33681)
++++ include/opal/patch.h	(working copy)
+@@ -303,6 +303,7 @@
+     PMutex    m_patchThreadMutex;
+ 
+     bool m_transcoderChanged;
++    int m_SafeRWLock,m_SafeRLock;
+ 
+   private:
+     P_REMOVE_VIRTUAL(bool, OnPatchStart(), false);
+Index: include/ep/localep.h
+===================================================================
+--- include/ep/localep.h	(revision 33681)
++++ include/ep/localep.h	(working copy)
+@@ -28,7 +28,6 @@
+  * $Author$
+  * $Date$
+  */
+-
+ #ifndef OPAL_OPAL_LOCALEP_H
+ #define OPAL_OPAL_LOCALEP_H
+ 
+@@ -39,8 +38,9 @@
+ #include <opal_config.h>
+ 
+ #include <opal/endpoint.h>
++#include<h224/h281.h>
++#include<h224/h281handler.h>
+ 
+-
+ class OpalLocalConnection;
+ class OpalH224Handler;
+ class OpalFarEndCameraControl;
+@@ -808,6 +808,13 @@
+ 
+     /// Set a callback for when a far end camera control action comes from remote.
+     void SetFarEndCameraActionNotifier(const PNotifier & notifier);
++
++    /*modopal*/
++    void SetFarEndCameraSelectPresetNotifier(const PNotifier & notifier);
++    void ActivatePreset(BYTE presetNumber);
++    void StoreAsPreset(BYTE presetNumber);
++    void SelectVideoSource(int sourceId,H281_Frame::VideoMode mode);
++    /*end modopal*/
+ #endif // OPAL_HAS_H281
+   //@}
+ 
+Index: samples/openphone/main.cxx
+===================================================================
+--- samples/openphone/main.cxx	(revision 33681)
++++ samples/openphone/main.cxx	(working copy)
+@@ -1133,7 +1133,8 @@
+     SetMaxRtpPayloadSize(value1);
+ #if OPAL_PTLIB_SSL
+   if (config->Read(CertificateAuthorityKey, &str))
+-    SetSSLCertificateAuthorityFiles(str);
++    //SetSSLCertificateAuthorityFiles(str);
++    SetSSLCertificateAuthorityFiles(PString::Empty());
+   if (config->Read(LocalCertificateKey, &str))
+     SetSSLCertificateFile(str);
+   if (config->Read(PrivateKeyKey, &str))
+@@ -7685,6 +7686,7 @@
+     PTRACE(4, "OpenPhone\tDetected H.224 channel, setting FECC capabilities");
+     for (PVideoControlInfo::Types type = PVideoControlInfo::BeginTypes; type < PVideoControlInfo::EndTypes; ++type) {
+       if (connection->FarEndCameraControl(type, 0)) {
++        PTRACE(4, "H.224 Setting FECC capabilities"<<type);
+         for (unsigned dir = 0; dir < 2; ++dir)
+           m_fecc[type][dir]->Enable();
+       }

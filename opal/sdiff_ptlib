@@ -1,0 +1,29 @@
+Index: src/ptlib/unix/osutil.cxx
+===================================================================
+--- src/ptlib/unix/osutil.cxx	(revision 33681)
++++ src/ptlib/unix/osutil.cxx	(working copy)
+@@ -729,6 +729,9 @@
+         break;
+       case WriteOnly :
+         oflags |= O_WRONLY;
++	/* modopal appending otherwise it leads to null characters appended 
++	 at the beginning of the file  while logrorate */
++        oflags |= O_APPEND;
+         if (opt == ModeDefault)
+           opt = Create|Truncate;
+         break;
+Index: src/ptlib/unix/tlibthrd.cxx
+===================================================================
+--- src/ptlib/unix/tlibthrd.cxx	(revision 33681)
++++ src/ptlib/unix/tlibthrd.cxx	(working copy)
+@@ -789,7 +789,9 @@
+   // don't use PThread::Current, as the thread may already not be in the
+   // active threads list
+   if (m_threadId == pthread_self()) {
+-    pthread_exit(0);
++  PTRACE(2, "PTLib\t pgowda_tlib_error  m_threadId: "<<m_threadId<<" pthread_self():"<<pthread_self());
++  /*commenting below as it sometimes it matches differet threadId and dies immmaturely and leads to deadlock which is difficult to debug*/
++    //pthread_exit(0);
+     return;   // keeps compiler happy
+   }
+ 
