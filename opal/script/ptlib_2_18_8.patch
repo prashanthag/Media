@@ -1,16 +1,19 @@
 diff --git a/src/ptclib/mediafile.cxx b/src/ptclib/mediafile.cxx
-index 7f4284e7c..3900b6456 100644
+index 7f4284e7c..7ba742253 100644
 --- a/src/ptclib/mediafile.cxx
 +++ b/src/ptclib/mediafile.cxx
-@@ -40,7 +40,7 @@
+@@ -40,8 +40,9 @@
  #include <ptlib/vconvert.h>
  #include <ptlib/pprocess.h>
  #include <ptclib/pvidfile.h>
 -
-+#include<libavcodec/avcodec.h>
- 
+-
++extern "C" {
++  #include<libavcodec/avcodec.h>
++}
  #define PTraceModule() "MediaFile"
  
+ //#undef P_FFMPEG_FULL
 diff --git a/src/ptlib/common/contain.cxx b/src/ptlib/common/contain.cxx
 index d86f61962..9f0f6fd49 100644
 --- a/src/ptlib/common/contain.cxx

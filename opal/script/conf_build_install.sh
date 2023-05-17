@@ -1,5 +1,5 @@
 set -e
-SUBVERSION=14_3
+SUBVERSION=18_8
 . ./env_install.sh
 cd ../
 git clone git://git.code.sf.net/p/opalvoip/ptlib ptlib || true
