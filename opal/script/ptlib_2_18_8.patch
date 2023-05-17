@@ -1,0 +1,39 @@
+diff --git a/src/ptclib/mediafile.cxx b/src/ptclib/mediafile.cxx
+index 7f4284e7c..3900b6456 100644
+--- a/src/ptclib/mediafile.cxx
++++ b/src/ptclib/mediafile.cxx
+@@ -40,7 +40,7 @@
+ #include <ptlib/vconvert.h>
+ #include <ptlib/pprocess.h>
+ #include <ptclib/pvidfile.h>
+-
++#include<libavcodec/avcodec.h>
+ 
+ #define PTraceModule() "MediaFile"
+ 
+diff --git a/src/ptlib/common/contain.cxx b/src/ptlib/common/contain.cxx
+index d86f61962..9f0f6fd49 100644
+--- a/src/ptlib/common/contain.cxx
++++ b/src/ptlib/common/contain.cxx
+@@ -2612,7 +2612,7 @@ PStringStream::~PStringStream()
+ {
+   PStringStream::Buffer * buf = dynamic_cast<PStringStream::Buffer *>(rdbuf());
+ #if P_HAS_SET_RDBUF
+-  set_rdbuf(NULL);
++  //set_rdbuf(NULL);
+ #elif !defined(_MSC_VER)
+   init(NULL);
+ #endif
+diff --git a/src/ptlib/common/pchannel.cxx b/src/ptlib/common/pchannel.cxx
+index 6e376f02c..d9fbfbd62 100644
+--- a/src/ptlib/common/pchannel.cxx
++++ b/src/ptlib/common/pchannel.cxx
+@@ -149,7 +149,7 @@ PChannel::~PChannel()
+ {
+   PChannelStreamBuffer * buf = dynamic_cast<PChannelStreamBuffer *>(rdbuf());
+ #if P_HAS_SET_RDBUF
+-  set_rdbuf(NULL);
++//set_rdbuf(NULL);
+ #elif !defined(_MSC_VER)
+   init(NULL);
+ #endif

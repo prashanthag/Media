@@ -1,6 +1,8 @@
 #!/bin/bash
 set -e 
 . ./docker_env.sh
+git clone git://git.code.sf.net/p/opalvoip/ptlib ptlib
+git clone git://git.code.sf.net/p/opalvoip/opal  opal
 cd  ptlib
 git checkout -b v2_18_8  v2_18_8 || true
 git apply ../ptlib.patch

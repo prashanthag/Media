@@ -1,0 +1,141 @@
+diff --git a/plugins/video/common/ffmpeg.cxx b/plugins/video/common/ffmpeg.cxx
+index a29ec801e0..54c4a3fd8e 100644
+--- a/plugins/video/common/ffmpeg.cxx
++++ b/plugins/video/common/ffmpeg.cxx
+@@ -108,7 +108,7 @@ FFMPEGCodec::FFMPEGCodec(const char * prefix, OpalPluginFrame * fullFrame)
+ {
+   g_avcodec_mutex.Wait();
+ 
+-  avcodec_register_all();
++  //avcodec_register_all();
+ 
+ #if PLUGINCODEC_TRACING
+   av_log_set_level(AV_LOG_DEBUG);
+@@ -202,7 +202,7 @@ bool FFMPEGCodec::InitEncoder(AVCodecID codecId)
+ {
+   PTRACE(5, m_prefix, "Initialising encoder");
+ 
+-  m_codec = avcodec_find_encoder(codecId);
++  m_codec = (AVCodec*) avcodec_find_encoder(codecId);
+   if (m_codec == NULL) {
+     PTRACE(1, m_prefix, "Codec not found for encoder");
+     return false;
+@@ -211,12 +211,12 @@ bool FFMPEGCodec::InitEncoder(AVCodecID codecId)
+   if (!InitContext())
+     return false;
+ 
+-  m_context->rtp_callback = &StaticRTPCallBack;
++//  m_context->rtp_callback = &StaticRTPCallBack;
+ 
+ #ifdef CODEC_FLAG_EMU_EDGE
+   m_context->flags |= CODEC_FLAG_EMU_EDGE;   // don't draw edges
+ #endif
+-  m_context->flags |= AV_CODEC_FLAG_TRUNCATED;  // Possible missing packets
++  m_context->flags |= AV_CODEC_FLAG_DROPCHANGED;  // Possible missing packets
+ 
+   m_context->mb_decision = FF_MB_DECISION_SIMPLE;    // high quality off
+ 
+@@ -236,7 +236,7 @@ bool FFMPEGCodec::InitEncoder(AVCodecID codecId)
+ 
+ bool FFMPEGCodec::InitDecoder(AVCodecID codecId)
+ {
+-  if ((m_codec = avcodec_find_decoder(codecId)) == NULL) {
++  if ((m_codec = (AVCodec*) avcodec_find_decoder(codecId)) == NULL) {
+     PTRACE(1, m_prefix, "Codec not found for decoder");
+     return false;
+   }
+@@ -405,12 +405,12 @@ void FFMPEGCodec::SetEncoderOptions(unsigned frameTime,
+   m_context->lmin = m_context->qmin * FF_QP2LAMBDA;
+   m_context->lmax = m_context->qmax * FF_QP2LAMBDA; 
+ #endif
+-
++  int rtp_payload_size;
+   if (m_fullFrame == NULL)
+-    m_context->rtp_payload_size = maxRTPSize;
++    rtp_payload_size = maxRTPSize;
+   else {
+     m_fullFrame->SetMaxPayloadSize(maxRTPSize);
+-    m_context->rtp_payload_size = (int)m_fullFrame->GetMaxPayloadSize(); // Might be adjusted to smaller value
++    rtp_payload_size = (int)m_fullFrame->GetMaxPayloadSize(); // Might be adjusted to smaller value
+   }
+ 
+   m_context->qmax = tsto;
+@@ -430,7 +430,7 @@ void FFMPEGCodec::SetEncoderOptions(unsigned frameTime,
+   PTRACE(5, m_prefix, "bit_rate_tolerance set to " <<m_context->bit_rate_tolerance);
+   PTRACE(5, m_prefix, "qmin set to " << m_context->qmin);
+   PTRACE(5, m_prefix, "qmax set to " << m_context->qmax);
+-  PTRACE(5, m_prefix, "payload size set to " << m_context->rtp_payload_size);
++  PTRACE(5, m_prefix, "payload size set to " << rtp_payload_size);
+ }
+ 
+ 
+@@ -517,7 +517,24 @@ int FFMPEGCodec::EncodeVideoFrame(uint8_t * frame, size_t length, unsigned & fla
+   m_packet.data = frame;
+   m_packet.size = (int)length;
+   int gotPacket = 0;
+-  int result = avcodec_encode_video2(m_context, &m_packet, m_picture, &gotPacket);
++  //int result = avcodec_encode_video2(m_context, &m_packet, m_picture, &gotPacket);
++  int result = 0;
++  int ret = avcodec_send_frame(m_context, m_picture);
++  if (ret < 0){
++    PTRACE(1, m_prefix, "Error Video: sending a frame for encoding");
++    result = -1;
++  }
++  while (ret >= 0 ){
++    ret = avcodec_receive_packet (m_context, &m_packet);
++    if ( (ret == AVERROR(EAGAIN)) | ret == AVERROR_EOF){
++      break;
++    }
++    else if ( ret < 0 ) {
++      PTRACE(1, m_prefix, "Error_video: receiving packet for encoding");
++      break;
++    }
++  }
++
+ #endif
+ 
+   if (result < 0) {
+@@ -607,7 +624,29 @@ bool FFMPEGCodec::DecodeVideoFrame(const uint8_t * frame, size_t length, unsigne
+ #else
+   m_packet.data = (uint8_t *)frame;
+   m_packet.size = (int)length;
+-  int bytesDecoded = avcodec_decode_video2(m_context, m_picture, &gotPicture, &m_packet);
++  //int bytesDecoded = avcodec_decode_video2(m_context, m_picture, &gotPicture, &m_packet);
++  int bytesDecoded = length;
++  int ret = avcodec_send_packet (m_context, &m_packet);
++  if (ret < 0){
++    PTRACE(1, m_prefix, "Error  decoder-video sending a packet for decoding");
++    bytesDecoded = -1;
++  }else{
++    while ( ret >= 0 ) {
++      ret = avcodec_receive_frame(m_context, m_picture);
++      if ( ret == AVERROR (EAGAIN) || ret == AVERROR_EOF)
++        break;
++      else if ( ret <0 ){
++        PTRACE(1, m_prefix, "Error decoder-video during decoding\n");
++        bytesDecoded = -1;
++        gotPicture = 0;
++        break;
++      }
++      gotPicture = 1;
++      bytesDecoded = length;
++      break;
++    }
++  }
++
+ #endif
+ 
+   if (bytesDecoded >= 0)
+diff --git a/plugins/video/x264/h264-x264.cxx b/plugins/video/x264/h264-x264.cxx
+index 1ff573dd55..a686a6b608 100644
+--- a/plugins/video/x264/h264-x264.cxx
++++ b/plugins/video/x264/h264-x264.cxx
+@@ -870,7 +870,7 @@ class H264_Decoder : public PluginVideoDecoder<MY_CODEC>, public FFMPEGCodec
+ #else
+       m_context->idct_algo = FF_IDCT_AUTO;
+ #endif
+-      m_context->flags2 |= AV_CODEC_FLAG2_DROP_FRAME_TIMECODE |
++      m_context->flags2 |= AV_CODEC_FLAG_DROPCHANGED |
+                            AV_CODEC_FLAG2_CHUNKS;
+ 
+       if (!OpenCodec())
