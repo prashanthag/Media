@@ -1,7 +1,5 @@
 set -e
-SUBVERSION=18_8
 . ./env_install.sh
-cd ../
 git clone git://git.code.sf.net/p/opalvoip/ptlib ptlib || true
 cd  ptlib
 git clean -fd 
@@ -15,13 +13,23 @@ fi
 git clean -fd 
 git checkout  -- ./
 
-git apply ../script/ptlib_2_${SUBVERSION}.patch || true
+current_version=$(echo "$SUBVERSION" | tr -d '_')
+if [ $current_version -eq 143 ]  ; then 
+    machine_arch=$(uname -m)
+    if [ "${machine_arch}" = "aarch64" ]; then
+        echo "ARM architecture (aarch64) applying config.patch"
+	echo "$(pwd)"
+        git apply ../ptlib_config.patch 
+	autoreconf -if | true
+    fi      
+else
+    git apply ../ptlib_2_${SUBVERSION}.patch || true
+fi
+
 ./configure  --prefix ${INSTALL_DIR} --enable-pulse --enable-samples 
 make -j $(nproc --all) debug
 
-exit
-sudo make install
-
+make install
 cd ../
 git clone git://git.code.sf.net/p/opalvoip/opal  opal || true
 cd opal
@@ -36,9 +44,20 @@ fi
 git clean -fd 
 git checkout  -- ./
 
-git apply ../script/opal_3_${SUBVERSION}.patch || true
+if [ $current_version -eq 143 ]  ; then 
+    machine_arch=$(uname -m)
+    if [ "${machine_arch}" = "aarch64" ]; then
+        echo "ARM architecture (aarch64) applying config.patch"
+	echo "$(pwd)"
+        git apply ../opal_config.patch 
+        git apply ../opal.patch 
+	autoreconf -if | true
+    fi      
+else
+    git apply ../opal_3_${SUBVERSION}.patch || true
+fi
 ./configure --prefix ${INSTALL_DIR}   --enable-samples
 make -j $(nproc --all) debug 
-sudo make install
+make install
 cd samples/openphone
 make debug
