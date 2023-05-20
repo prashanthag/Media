@@ -139,3 +139,31 @@ index 1ff573dd55..a686a6b608 100644
                             AV_CODEC_FLAG2_CHUNKS;
  
        if (!OpenCodec())
+diff --git a/plugins/audio/iSAC/iSAC/typedefs.h b/plugins/audio/iSAC/iSAC/typedefs.h
+index 472c74b088..fb0bdd3f68 100644
+--- a/plugins/audio/iSAC/iSAC/typedefs.h
++++ b/plugins/audio/iSAC/iSAC/typedefs.h
+@@ -48,12 +48,22 @@
+ #elif defined(__MIPSEL__)
+ #define WEBRTC_ARCH_32_BITS
+ #define WEBRTC_ARCH_LITTLE_ENDIAN
++#elif defined(__aarch64__)
++#define WEBRTC_ARCH_LITTLE_ENDIAN
++#define WEBRTC_ARCH_ARM_FAMILY
++#define WEBRTC_ARCH_ARM_V8
++#define WEBRTC_ARCH_ARM64
++#define WEBRTC_ARCH_X86_FAMILY
++#define WEBRTC_ARCH_X86_64
++#define WEBRTC_ARCH_PPC
++#define WEBRTC_ARCH_MIPS
+ #else
+ #error Please add support for your architecture in typedefs.h
+ #endif
+ 
+ #if !(defined(WEBRTC_ARCH_LITTLE_ENDIAN) ^ defined(WEBRTC_ARCH_BIG_ENDIAN))
+-#error Define either WEBRTC_ARCH_LITTLE_ENDIAN or WEBRTC_ARCH_BIG_ENDIAN
++//#error Define either WEBRTC_ARCH_LITTLE_ENDIAN or WEBRTC_ARCH_BIG_ENDIAN
++#define WEBRTC_ARCH_LITTLE_ENDIAN
+ #endif
+ 
+ #if defined(__SSE2__) || defined(_MSC_VER)
