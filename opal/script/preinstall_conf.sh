@@ -13,5 +13,5 @@ else
 fi
 DEBIAN_FRONTEND=noninteractive apt install -y libfontconfig-dev libfribidi-dev $SSL_DEV
 DEBIAN_FRONTEND=noninteractive apt install -y  libspeex-dev libopus-dev   libvpx-dev libtheora-dev libspandsp-dev 
-DEBIAN_FRONTEND=noninteractive apt install -y vim g++ git make autoconf libpcap-dev libexpat-dev  libsasl2-dev libldap-dev  unixodbc-dev liblua5.3-dev  libncurses-dev libsdl2-dev  libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev libwxgtk3.0-gtk3-dev libsrtp2-dev libgsm1-dev  capiutils dahdi 
+DEBIAN_FRONTEND=noninteractive apt install -y vim g++ git make autoconf libpcap-dev libexpat-dev  libsasl2-dev libldap-dev  unixodbc-dev liblua5.3-dev  libncurses-dev libsdl-dev libsdl2-dev  libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev libwxgtk3.0-gtk3-dev libsrtp2-dev libgsm1-dev  capiutils dahdi 
 

@@ -1,0 +1,71 @@
+diff --git a/configure.ac b/configure.ac
+index 650f77739..7fe809f72 100644
+--- a/configure.ac
++++ b/configure.ac
+@@ -764,7 +764,7 @@ AC_DEFINE(P_PTHREADS, 1, "PThreads found")
+ LIBS="$PTHREAD_LIBS $LIBS"
+ CPPFLAGS="$CPPFLAGS -D_REENTRANT"
+ CFLAGS="$CFLAGS $PTHREAD_CFLAGS"
+-CXXFLAGS="$CXXFLAGS $PTHREAD_CFLAGS"
++CXXFLAGS="$CXXFLAGS $PTHREAD_CFLAGS -std=c++03"
+ if test "$CC" != "$PTHREAD_CC"; then
+     AC_MSG_WARN([Overriding default CC to $PTHREAD_CC])
+     CC="$PTHREAD_CC"
+diff --git a/make/config.guess b/make/config.guess
+index 500ee74b0..4af3ce358 100644
+--- a/make/config.guess
++++ b/make/config.guess
+@@ -803,7 +803,31 @@ EOF
+ 	exit 0 ;;
+     i*86:Minix:*:*)
+ 	echo ${UNAME_MACHINE}-pc-minix
+-	exit 0 ;;
++	exit ;;
++    aarch64:Linux:*:*)
++	echo ${UNAME_MACHINE}-unknown-linux-gnu
++	exit ;;
++    aarch64_be:Linux:*:*)
++	UNAME_MACHINE=aarch64_be
++	echo ${UNAME_MACHINE}-unknown-linux-gnu
++	exit ;;
++    alpha:Linux:*:*)
++	case `sed -n '/^cpu model/s/^.*: \(.*\)/\1/p' < /proc/cpuinfo` in
++	  EV5)   UNAME_MACHINE=alphaev5 ;;
++	  EV56)  UNAME_MACHINE=alphaev56 ;;
++	  PCA56) UNAME_MACHINE=alphapca56 ;;
++	  PCA57) UNAME_MACHINE=alphapca56 ;;
++	  EV6)   UNAME_MACHINE=alphaev6 ;;
++	  EV67)  UNAME_MACHINE=alphaev67 ;;
++	  EV68*) UNAME_MACHINE=alphaev68 ;;
++	esac
++	objdump --private-headers /bin/sh | grep -q ld.so.1
++	if test "$?" = 0 ; then LIBC="gnulibc1" ; fi
++	echo ${UNAME_MACHINE}-unknown-linux-${LIBC}
++	exit ;;
++    arc:Linux:*:* | arceb:Linux:*:*)
++	echo ${UNAME_MACHINE}-unknown-linux-${LIBC}
++	exit ;;
+     arm*:Linux:*:*)
+ 	echo ${UNAME_MACHINE}-unknown-linux-gnu
+ 	exit 0 ;;
+diff --git a/src/ptlib/common/osutils.cxx b/src/ptlib/common/osutils.cxx
+index ad69fa5e4..551a68f63 100644
+--- a/src/ptlib/common/osutils.cxx
++++ b/src/ptlib/common/osutils.cxx
+@@ -44,7 +44,6 @@
+ #include <ptlib/svcproc.h>
+ #include <ptlib/pluginmgr.h>
+ #include "../../../version.h"
+-#include "../../../revision.h"
+ 
+ #ifdef _WIN32
+ #include <ptlib/msos/ptlib/debstrm.h>
+@@ -2235,7 +2234,7 @@ PString PProcess::GetLibVersion()
+                   MINOR_VERSION,
+                   VersionStatus[BUILD_TYPE],
+                   BUILD_NUMBER,
+-                  SVN_REVISION);
++                  1);
+ }
+ 
+ 

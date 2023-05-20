@@ -1,0 +1,52 @@
+diff --git a/configure.ac b/configure.ac
+index 650f77739..7fe809f72 100644
+--- a/configure.ac
++++ b/configure.ac
+@@ -764,7 +764,7 @@ AC_DEFINE(P_PTHREADS, 1, "PThreads found")
+ LIBS="$PTHREAD_LIBS $LIBS"
+ CPPFLAGS="$CPPFLAGS -D_REENTRANT"
+ CFLAGS="$CFLAGS $PTHREAD_CFLAGS"
+-CXXFLAGS="$CXXFLAGS $PTHREAD_CFLAGS"
++CXXFLAGS="$CXXFLAGS $PTHREAD_CFLAGS -std=c++03"
+ if test "$CC" != "$PTHREAD_CC"; then
+     AC_MSG_WARN([Overriding default CC to $PTHREAD_CC])
+     CC="$PTHREAD_CC"
+diff --git a/make/config.guess b/make/config.guess
+index 1f5c50c0d..e04e9c01d 100644
+--- a/make/config.guess
++++ b/make/config.guess
+@@ -884,11 +884,11 @@ EOF
+ 	echo ${UNAME_MACHINE}-pc-minix
+ 	exit ;;
+     aarch64:Linux:*:*)
+-	echo ${UNAME_MACHINE}-unknown-linux-${LIBC}
++	echo ${UNAME_MACHINE}-unknown-linux-gnu
+ 	exit ;;
+     aarch64_be:Linux:*:*)
+ 	UNAME_MACHINE=aarch64_be
+-	echo ${UNAME_MACHINE}-unknown-linux-${LIBC}
++	echo ${UNAME_MACHINE}-unknown-linux-gnu
+ 	exit ;;
+     alpha:Linux:*:*)
+ 	case `sed -n '/^cpu model/s/^.*: \(.*\)/\1/p' < /proc/cpuinfo` in
+diff --git a/src/ptlib/common/osutils.cxx b/src/ptlib/common/osutils.cxx
+index ad69fa5e4..551a68f63 100644
+--- a/src/ptlib/common/osutils.cxx
++++ b/src/ptlib/common/osutils.cxx
+@@ -44,7 +44,6 @@
+ #include <ptlib/svcproc.h>
+ #include <ptlib/pluginmgr.h>
+ #include "../../../version.h"
+-#include "../../../revision.h"
+ 
+ #ifdef _WIN32
+ #include <ptlib/msos/ptlib/debstrm.h>
+@@ -2235,7 +2234,7 @@ PString PProcess::GetLibVersion()
+                   MINOR_VERSION,
+                   VersionStatus[BUILD_TYPE],
+                   BUILD_NUMBER,
+-                  SVN_REVISION);
++                  1);
+ }
+ 
+ 
