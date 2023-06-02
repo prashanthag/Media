@@ -1,0 +1,1175 @@
+diff --git a/include/ep/localep.h b/include/ep/localep.h
+index 7391281..c123de6 100644
+--- a/include/ep/localep.h
++++ b/include/ep/localep.h
+@@ -28,7 +28,6 @@
+  * $Author$
+  * $Date$
+  */
+-
+ #ifndef OPAL_OPAL_LOCALEP_H
+ #define OPAL_OPAL_LOCALEP_H
+ 
+@@ -39,7 +38,8 @@
+ #include <opal_config.h>
+ 
+ #include <opal/endpoint.h>
+-
++#include<h224/h281.h>
++#include<h224/h281handler.h>
+ 
+ class OpalLocalConnection;
+ class OpalH224Handler;
+@@ -808,6 +808,13 @@ class OpalLocalConnection : public OpalConnection
+ 
+     /// Set a callback for when a far end camera control action comes from remote.
+     void SetFarEndCameraActionNotifier(const PNotifier & notifier);
++
++    /*modopal*/
++    void SetFarEndCameraSelectPresetNotifier(const PNotifier & notifier);
++    void ActivatePreset(BYTE presetNumber);
++    void StoreAsPreset(BYTE presetNumber);
++    void SelectVideoSource(int sourceId,H281_Frame::VideoMode mode);
++    /*end modopal*/
+ #endif // OPAL_HAS_H281
+   //@}
+ 
+diff --git a/include/h323/h323con.h b/include/h323/h323con.h
+index 5d6307d..c01d16d 100644
+--- a/include/h323/h323con.h
++++ b/include/h323/h323con.h
+@@ -1419,7 +1419,11 @@ class H323Connection : public OpalRTPConnection
+       unsigned channelNumber,
+       unsigned newBitRate
+     );
+-    
++   /*modopal*/ 
++    virtual void SendFlowControlIndication(
++      unsigned channelNumber,
++      unsigned newBitRate
++    );
+     /**This function is called when the remote endpoint want's to open
+        a new channel.
+ 
+diff --git a/include/h323/h323ep.h b/include/h323/h323ep.h
+index 06d2deb..1ed55cd 100644
+--- a/include/h323/h323ep.h
++++ b/include/h323/h323ep.h
+@@ -1115,6 +1115,7 @@ class H323EndPoint : public OpalRTPEndPoint
+       PIPSocket::Address & localAddr,
+       const PIPSocket::Address & remoteAddr
+     );
++    void  SetSignallingChannelCallTimeout(const PTimeInterval & t)  { signallingChannelCallTimeout = t; }
+  
+     /**Get the default timeout for calling another endpoint.
+      */
+diff --git a/include/h323/h323pdu.h b/include/h323/h323pdu.h
+index 8407644..fba7af6 100644
+--- a/include/h323/h323pdu.h
++++ b/include/h323/h323pdu.h
+@@ -361,6 +361,12 @@ class H323ControlPDU : public H245_MultimediaSystemControlMessage
+       unsigned channelNumber, 
+       unsigned maxBitRate
+     );
++    /*modopal*/
++    H245_FlowControlIndication & BuildFlowControlIndication(
++      unsigned channelNumber,
++      unsigned maxBitRate
++     );
++
+ 
+     H245_MiscellaneousIndication & BuildMiscellaneousIndication(
+       unsigned channelNumber,
+diff --git a/include/opal/patch.h b/include/opal/patch.h
+index f5a5c05..d9bfbfd 100644
+--- a/include/opal/patch.h
++++ b/include/opal/patch.h
+@@ -303,6 +303,7 @@ class OpalMediaPatch : public PSafeObject
+     PMutex    m_patchThreadMutex;
+ 
+     bool m_transcoderChanged;
++    int m_SafeRWLock,m_SafeRLock;
+ 
+   private:
+     P_REMOVE_VIRTUAL(bool, OnPatchStart(), false);
+diff --git a/include/sip/sipep.h b/include/sip/sipep.h
+index 926b3f7..0cd80b7 100644
+--- a/include/sip/sipep.h
++++ b/include/sip/sipep.h
+@@ -802,6 +802,8 @@ class SIPEndPoint : public OpalRTPEndPoint
+       const PURL & to
+     );
+ 
++    void SetTransportListener(string listner){ m_transportListener.assign(listner);}
++
+     /** Get the allowed events for SUBSCRIBE commands.
+       */
+     const PStringSet & GetAllowedEvents() const { return m_allowedEvents; }
+@@ -999,6 +1001,7 @@ class SIPEndPoint : public OpalRTPEndPoint
+     SIPURL        m_proxy;
+     PString       m_userAgentString;
+     PStringSet    m_allowedEvents;
++    string        m_transportListener;
+ 
+     SIPConnection::PRACKMode m_defaultPrackMode;
+ 
+diff --git a/plugins/video/MPEG4-ffmpeg/mpeg4.cxx b/plugins/video/MPEG4-ffmpeg/mpeg4.cxx
+index c9ed553..f3292c5 100644
+--- a/plugins/video/MPEG4-ffmpeg/mpeg4.cxx
++++ b/plugins/video/MPEG4-ffmpeg/mpeg4.cxx
+@@ -390,11 +390,9 @@ class MPEG4_Encoder : public PluginVideoEncoder<MY_CODEC>, public FFMPEGCodec
+       SetEncoderOptions(m_frameTime, m_maxBitRate, m_maxRTPSize, m_tsto, m_keyFramePeriod);
+ 
+       m_context->max_b_frames = 0; /*don't use b frames*/
+-      m_context->flags |= CODEC_FLAG_AC_PRED
+-                    /* | CODEC_FLAG_QPEL */ // don't enable this one: this forces profile_level to advanced simple profile
+-                       | CODEC_FLAG_4MV
+-                       | CODEC_FLAG_GMC
+-                       | CODEC_FLAG_LOOP_FILTER;
++      m_context->flags |= AV_CODEC_FLAG_AC_PRED
++                       | AV_CODEC_FLAG_4MV
++                       | AV_CODEC_FLAG_LOOP_FILTER;
+ 
+       return OpenCodec();
+     }
+@@ -464,7 +462,7 @@ class MPEG4_Decoder : public PluginVideoDecoder<MY_CODEC>, public FFMPEGCodec
+       if (!InitDecoder(AV_CODEC_ID_MPEG4))
+         return false;
+ 
+-      m_context->flags |= CODEC_FLAG_4MV;
++      m_context->flags |= AV_CODEC_FLAG_4MV;
+ 
+       return OpenCodec();
+     }
+diff --git a/plugins/video/common/encframe.cxx b/plugins/video/common/encframe.cxx
+index 83cecfb..efd3d1c 100644
+--- a/plugins/video/common/encframe.cxx
++++ b/plugins/video/common/encframe.cxx
+@@ -94,6 +94,9 @@ void OpalPluginFrame::SetMaxPayloadSize(size_t size)
+ 
+ bool OpalPluginFrame::SetResolution(unsigned width, unsigned height)
+ {
++  /*TODO  It allocates 352x288 even for 1920x1080 so allocating maximum memory*/
++    width = 4096  ;
++    height = 4096 ;
+     return OpalMemory::AllocateAligned(m_memory, m_buffer, m_maxSize, width*height*2);
+ }
+ 
+diff --git a/plugins/video/common/ffmpeg.cxx b/plugins/video/common/ffmpeg.cxx
+index b22ec79..0cfc186 100644
+--- a/plugins/video/common/ffmpeg.cxx
++++ b/plugins/video/common/ffmpeg.cxx
+@@ -39,8 +39,8 @@
+  */
+ 
+ #include "ffmpeg.h"
+-
+ #include <stdio.h>
++#include <stdlib.h>
+ #include <iomanip>
+ 
+ #ifndef PLUGIN_CODEC_DLL_EXPORTS
+@@ -109,7 +109,7 @@ FFMPEGCodec::FFMPEGCodec(const char * prefix, OpalPluginFrame * fullFrame)
+   , m_errorCount(0)
+   , m_hadMissingPacket(false)
+ {
+-  avcodec_register_all();
++  //avcodec_register_all();
+ 
+   av_init_packet(&m_packet);
+ 
+@@ -165,7 +165,7 @@ bool FFMPEGCodec::InitContext()
+     return false;
+   }
+ 
+-  m_context->pix_fmt = PIX_FMT_YUV420P;
++  m_picture->format = m_context->pix_fmt = AV_PIX_FMT_YUV420P;
+   m_context->workaround_bugs = FF_BUG_AUTODETECT;
+ 
+   // debugging flags
+@@ -195,7 +195,7 @@ bool FFMPEGCodec::InitEncoder(AVCodecID codecId)
+ {
+   PTRACE(5, m_prefix, "Initialising encoder");
+ 
+-  m_codec = avcodec_find_encoder(codecId);
++  m_codec = (AVCodec*) avcodec_find_encoder(codecId);
+   if (m_codec == NULL) {
+     PTRACE(1, m_prefix, "Codec not found for encoder");
+     return false;
+@@ -204,11 +204,12 @@ bool FFMPEGCodec::InitEncoder(AVCodecID codecId)
+   if (!InitContext())
+     return false;
+ 
+-  m_context->rtp_callback = &StaticRTPCallBack;
++ // m_context->rtp_callback = &StaticRTPCallBack;
+ 
+-  m_context->flags = CODEC_FLAG_EMU_EDGE   // don't draw edges
+-                    | CODEC_FLAG_TRUNCATED  // Possible missing packets
+-                    ;
++#ifdef CODEC_FLAG_EMU_EDGE
++  m_context->flags |= CODEC_FLAG_EMU_EDGE;   // don't draw edges
++#endif
++  m_context->flags |= AV_CODEC_FLAG_TRUNCATED;  // Possible missing packets
+ 
+   m_context->mb_decision = FF_MB_DECISION_SIMPLE;    // high quality off
+ 
+@@ -228,7 +229,7 @@ bool FFMPEGCodec::InitEncoder(AVCodecID codecId)
+ 
+ bool FFMPEGCodec::InitDecoder(AVCodecID codecId)
+ {
+-  if ((m_codec = avcodec_find_decoder(codecId)) == NULL) {
++  if ((m_codec = (AVCodec*) avcodec_find_decoder(codecId)) == NULL) {
+     PTRACE(1, m_prefix, "Codec not found for decoder");
+     return false;
+   }
+@@ -292,8 +293,10 @@ bool FFMPEGCodec::SetResolution(unsigned width, unsigned height)
+   }
+ 
+   if (m_context != NULL) {
++#ifdef CODEC_FLAG_EMU_EDGE
+     if (width > 352)
+       m_context->flags &= ~CODEC_FLAG_EMU_EDGE; // Totally bizarre! FFMPEG crashes if on for CIF4
++#endif
+ 
+     m_context->width = width;
+     m_context->height = height;
+@@ -344,6 +347,7 @@ void FFMPEGCodec::SetEncoderOptions(unsigned frameTime,
+   // no effect.
+   m_context->rc_initial_buffer_occupancy = m_context->rc_buffer_size * 1/2;
+ 
++#if LIBAVCODEC_VERSION_INT <= AV_VERSION_INT(52, 0, 0)
+   // And this is set to 1.
+   // It seems to affect how aggressively the library will raise and lower
+   // quantization to keep bandwidth constant. Except it's in reference to
+@@ -353,6 +357,7 @@ void FFMPEGCodec::SetEncoderOptions(unsigned frameTime,
+ 
+   // This is set to 0 in ffmpeg.c, the command-line utility.
+   m_context->rc_initial_cplx = 0.0f;
++#endif
+ 
+   // FFMPEG requires bit rate tolerance to be at least one frame size
+   m_context->bit_rate_tolerance = maxBitRate/10;
+@@ -368,16 +373,21 @@ void FFMPEGCodec::SetEncoderOptions(unsigned frameTime,
+   m_context->max_qdiff = 10;  // was 3      // max q difference between frames
+   m_context->qcompress = 0.5;               // qscale factor between easy & hard scenes (0.0-1.0)
+ 
++#if LIBAVCODEC_VERSION_INT <= AV_VERSION_INT(52, 0, 0)
+   // Lagrange multipliers - this is how the context defaults do it:
+   m_context->lmin = m_context->qmin * FF_QP2LAMBDA;
+   m_context->lmax = m_context->qmax * FF_QP2LAMBDA;
+-
++#endif
++  int rtp_payload_size;
+   if (m_fullFrame == NULL)
+-    m_context->rtp_payload_size = maxRTPSize;
++    rtp_payload_size = maxRTPSize;
+   else {
+     m_fullFrame->SetMaxPayloadSize(maxRTPSize);
+-    m_context->rtp_payload_size = (int)m_fullFrame->GetMaxPayloadSize(); // Might be adjusted to smaller value
++    rtp_payload_size = (int)m_fullFrame->GetMaxPayloadSize(); // Might be adjusted to smaller value
+   }
++  char buf_payload [5];
++  snprintf(buf_payload, sizeof(buf_payload), "%d", rtp_payload_size);
++  av_opt_set(m_context->priv_data, "slice-max-size", buf_payload, 0);
+ 
+   m_context->qmax = tsto;
+   if (m_context->qmax <= m_context->qmin)
+@@ -396,7 +406,7 @@ void FFMPEGCodec::SetEncoderOptions(unsigned frameTime,
+   PTRACE(5, m_prefix, "bit_rate_tolerance set to " <<m_context->bit_rate_tolerance);
+   PTRACE(5, m_prefix, "qmin set to " << m_context->qmin);
+   PTRACE(5, m_prefix, "qmax set to " << m_context->qmax);
+-  PTRACE(5, m_prefix, "payload size set to " << m_context->rtp_payload_size);
++  PTRACE(5, m_prefix, "payload size set to " << rtp_payload_size);
+ }
+ 
+ 
+@@ -486,7 +496,26 @@ int FFMPEGCodec::EncodeVideoFrame(uint8_t * frame, size_t length, unsigned & fla
+   m_packet.data = frame;
+   m_packet.size = (int)length;
+   int gotPacket = 0;
+-  int result = avcodec_encode_video2(m_context, &m_packet, m_picture, &gotPacket);
++  //int result = avcodec_encode_video2(m_context, &m_packet, m_picture, &gotPacket);
++  int result = 0;
++  int ret  = avcodec_send_frame(m_context, m_picture);
++  if (ret < 0) {
++    PTRACE(1, m_prefix, "Error_video: sending a frame for encoding");
++    result = -1;
++  }else{
++
++    while (ret >= 0) {
++      ret = avcodec_receive_packet(m_context, &m_packet);
++      if (ret == AVERROR(EAGAIN) || ret == AVERROR_EOF){
++        break;
++      }
++      else if (ret < 0) {
++        PTRACE(1, m_prefix, "Error_video: receiving packet for encoding");
++        break;
++      }
++      //KeyFrame = pkt.flags & AV_PKT_FLAG_KEY;
++    }
++  }
+ #endif
+ 
+   if (result < 0) {
+@@ -552,6 +581,11 @@ bool FFMPEGCodec::DecodeVideoPacket(const PluginCodec_RTP & in, unsigned & flags
+ 
+ bool FFMPEGCodec::DecodeVideoFrame(const uint8_t * frame, size_t length, unsigned & flags)
+ {
++
++  if(0 == length ){
++  	PTRACE(4, m_prefix, "Error decoder-video " << length << " bytes");
++		return true;
++  }
+   PTRACE(5, m_prefix, "Decoding " << length << " bytes");
+ 
+   int errorsBefore = m_errorCount;
+@@ -566,11 +600,35 @@ bool FFMPEGCodec::DecodeVideoFrame(const uint8_t * frame, size_t length, unsigne
+ #else
+   m_packet.data = (uint8_t *)frame;
+   m_packet.size = (int)length;
+-  int bytesDecoded = avcodec_decode_video2(m_context, m_picture, &gotPicture, &m_packet);
++  //int bytesDecoded = avcodec_decode_video2(m_context, m_picture, &gotPicture, &m_packet);
++  int bytesDecoded = length;
++  int ret = avcodec_send_packet(m_context, &m_packet);
++  if (ret < 0) {
++    PTRACE(1, m_prefix, "Error decoder-video sending a packet for decoding");
++    bytesDecoded = -1;
++  }else{
++
++    while (ret >= 0) {
++      ret = avcodec_receive_frame(m_context, m_picture);
++      if (ret == AVERROR(EAGAIN) || ret == AVERROR_EOF)
++        break;
++      else if (ret < 0) {
++        PTRACE(1,m_prefix, "Error decoder-video during decoding\n");
++        bytesDecoded = -1;
++        gotPicture = 0;
++        break;
++        //exit(1);
++      }
++      gotPicture = 1;
++      bytesDecoded = length;
++      break;
++    }
++  }
++
+ #endif
+ 
+   if (bytesDecoded < 0) {
+-    PTRACE(1, m_prefix, "Decoder failed!");
++    PTRACE(1, m_prefix, "Error decoder-video failed! inputbytes: " <<length <<" bytes decoded: "<<bytesDecoded);
+     return false;
+   }
+ 
+diff --git a/plugins/video/common/ffmpeg.h b/plugins/video/common/ffmpeg.h
+index 1273c20..19c2721 100644
+--- a/plugins/video/common/ffmpeg.h
++++ b/plugins/video/common/ffmpeg.h
+@@ -50,6 +50,7 @@
+ extern "C" {
+   #include "libavcodec/avcodec.h"
+   #include "libavutil/mem.h"
++  #include "libavutil/opt.h"
+ };
+ 
+ #ifndef LIBAVCODEC_VERSION_INT
+diff --git a/plugins/video/x264/h264-x264.cxx b/plugins/video/x264/h264-x264.cxx
+index eb41d2a..c4e9d8b 100644
+--- a/plugins/video/x264/h264-x264.cxx
++++ b/plugins/video/x264/h264-x264.cxx
+@@ -808,12 +808,8 @@ class H264_Decoder : public PluginVideoDecoder<MY_CODEC>, public FFMPEGCodec
+ #else
+       m_context->idct_algo = FF_IDCT_AUTO;
+ #endif
+-      m_context->flags = CODEC_FLAG_INPUT_PRESERVED | CODEC_FLAG_EMU_EDGE;
+-      m_context->flags2 =
+-#ifdef CODEC_FLAG2_DROP_FRAME_TIMECODE
+-                          CODEC_FLAG2_DROP_FRAME_TIMECODE |
+-#endif
+-                          CODEC_FLAG2_CHUNKS;
++      m_context->flags2 |= AV_CODEC_FLAG2_DROP_FRAME_TIMECODE |
++                           AV_CODEC_FLAG2_CHUNKS;
+ 
+       if (!OpenCodec())
+         return false;
+diff --git a/samples/openphone/main.cxx b/samples/openphone/main.cxx
+index ff2db3c..c7d4b6b 100644
+--- a/samples/openphone/main.cxx
++++ b/samples/openphone/main.cxx
+@@ -1133,7 +1133,8 @@ bool MyManager::Initialise(bool startMinimised)
+     SetMaxRtpPayloadSize(value1);
+ #if OPAL_PTLIB_SSL
+   if (config->Read(CertificateAuthorityKey, &str))
+-    SetSSLCertificateAuthorityFiles(str);
++    //SetSSLCertificateAuthorityFiles(str);
++    SetSSLCertificateAuthorityFiles(PString::Empty());
+   if (config->Read(LocalCertificateKey, &str))
+     SetSSLCertificateFile(str);
+   if (config->Read(PrivateKeyKey, &str))
+@@ -7685,6 +7686,7 @@ void InCallPanel::OnStreamsChanged()
+     PTRACE(4, "OpenPhone\tDetected H.224 channel, setting FECC capabilities");
+     for (PVideoControlInfo::Types type = PVideoControlInfo::BeginTypes; type < PVideoControlInfo::EndTypes; ++type) {
+       if (connection->FarEndCameraControl(type, 0)) {
++        PTRACE(4, "H.224 Setting FECC capabilities"<<type);
+         for (unsigned dir = 0; dir < 2; ++dir)
+           m_fecc[type][dir]->Enable();
+       }
+diff --git a/src/ep/localep.cxx b/src/ep/localep.cxx
+index 513ee10..e186ded 100644
+--- a/src/ep/localep.cxx
++++ b/src/ep/localep.cxx
+@@ -652,6 +652,24 @@ void OpalLocalConnection::SetFarEndCameraActionNotifier(const PNotifier & notifi
+ {
+   m_farEndCameraControl->SetOnActionNotifier(notifier);
+ }
++/*modopal*/
++void OpalLocalConnection::SetFarEndCameraSelectPresetNotifier(const PNotifier & notifier)
++{
++  m_farEndCameraControl->SetOnSelectPresetNotifier(notifier);
++}
++void OpalLocalConnection::ActivatePreset(BYTE presetNumber)
++{
++  m_farEndCameraControl->ActivatePreset(presetNumber);
++}
++void OpalLocalConnection::StoreAsPreset(BYTE presetNumber)
++{
++  m_farEndCameraControl->StoreAsPreset(presetNumber);
++}
++void OpalLocalConnection::SelectVideoSource(int sourceId,H281_Frame::VideoMode mode)
++{
++  bool ret=m_farEndCameraControl->SelectVideoDeviceById(sourceId, mode);
++}
++/*end modopal*/
+ #endif // OPAL_HAS_H281
+ 
+ 
+diff --git a/src/h224/h281.cxx b/src/h224/h281.cxx
+index 75f9294..f78f932 100644
+--- a/src/h224/h281.cxx
++++ b/src/h224/h281.cxx
+@@ -627,17 +627,39 @@ void OpalH281Client::OnReceivedMessage(const H224_Frame & h224Frame)
+       break;
+ 
+     case H281_Frame::SelectVideoSource :
++    if (m_onSelectPreset.IsNULL()){
+       if (message.GetVideoSourceNumber() > 0)
+         m_localSourceId = VideoSourceIdsFromInt(message.GetVideoSourceNumber());
+         OnSelectVideoSource(m_localCapability[m_localSourceId].m_name, message.GetVideoMode());
++    }else{
++        int SelectPreset[3];
++        SelectPreset[0]=selectVideoSource;
++        SelectPreset[1]=VideoSourceIdsFromInt(message.GetVideoSourceNumber());
++        SelectPreset[2]=message.GetVideoMode();
++        m_onSelectPreset(*this, (P_INT_PTR)SelectPreset);
++    }
+       break;
+ 
+     case H281_Frame::StoreAsPreset :
++    if (m_onSelectPreset.IsNULL()){
+       OnStoreAsPreset(message.GetPresetNumber());
++    }else{
++        int SelectPreset[3];
++        SelectPreset[0]=storeAsPreset;
++        SelectPreset[1]=message.GetPresetNumber();
++        m_onSelectPreset(*this, (P_INT_PTR)SelectPreset);
++    }
+       break;
+ 
+     case H281_Frame::ActivatePreset :
++    if (m_onSelectPreset.IsNULL()){
+       OnActivatePreset(message.GetPresetNumber());
++    }else{
++        int SelectPreset[3];
++        SelectPreset[0]=activatePreset;
++        SelectPreset[1]=message.GetPresetNumber();
++        m_onSelectPreset(*this, (P_INT_PTR)SelectPreset);
++    }
+       break;
+ 
+     default :
+@@ -664,6 +686,11 @@ void OpalH281Client::SetOnActionNotifier(const PNotifier & notifier)
+ {
+   m_onAction = notifier;
+ }
++/*modopal*/
++void OpalH281Client::SetOnSelectPresetNotifier(const PNotifier & notifier)
++{
++  m_onSelectPreset = notifier;
++}
+ 
+ 
+ void OpalH281Client::OnSelectVideoSource(const PString & /*source*/, H281_Frame::VideoMode /*videoMode*/)
+@@ -801,6 +828,18 @@ bool OpalFarEndCameraControl::SelectVideoDevice(PVideoInputDevice * device, H281
+   PTRACE(3, "Video device " << device->GetDeviceName() << " not attached.");
+   return false;
+ }
++/*modopal*/
++bool OpalFarEndCameraControl::SelectVideoDeviceById(int sourceId,H281_Frame::VideoMode mode)
++{
++  PWaitAndSignal m(m_mutex);
++
++ if( sourceId < NumVideoSourceIds){
++      return SelectVideoSource(m_remoteCapability[sourceId].m_name, mode);
++  }
++
++  PTRACE(3, "Video device id "<<sourceId<<"does not exist ");
++  return false;
++}
+ 
+ 
+ void OpalFarEndCameraControl::OnStartAction(int directions[PVideoControlInfo::NumTypes])
+diff --git a/src/h323/channels.cxx b/src/h323/channels.cxx
+index 1d92b3e..b50e480 100644
+--- a/src/h323/channels.cxx
++++ b/src/h323/channels.cxx
+@@ -376,6 +376,14 @@ PBoolean H323UnidirectionalChannel::SetInitialBandwidth()
+   if (GetDirection() == IsTransmitter) {
+     OpalMediaFormat mediaFormat = GetMediaFormat();
+     bandwidth = mediaFormat.GetOptionInteger(OpalMediaFormat::TargetBitRateOption());
++    /*modopal 
++     * Issue poylcomHDX9004-opal call 
++     * Tx bandwidth should not be divided among many channels
++     * just send individual maximum bandwidth otherwise polycom hdx rejects channel either video or h224
++     * as opal does not provide exact max bit rate asked. so set available bandwidth always target bandwtdh
++     **/
++    //connection.SetBandwidthAvailable(OpalBandwidth::Tx,bandwidth); //modopal line added
++
+     OpalBandwidth available = connection.GetBandwidthAvailable(OpalBandwidth::Tx);
+     if (bandwidth > available) {
+       PTRACE(3, "LogChan", "Adjusting " << GetNumber() << ' ' << capability->GetMediaFormat()
+diff --git a/src/h323/h235dh.cxx b/src/h323/h235dh.cxx
+index c020ede..6231974 100644
+--- a/src/h323/h235dh.cxx
++++ b/src/h323/h235dh.cxx
+@@ -139,9 +139,11 @@ static struct DHInfo {
+   PINDEX          m_groupBits;
+   const uint8_t * m_modulus;
+ } const DHGroup[] = {
+-  { "2.16.840.1.101.3.4.1.2",  "0.0.8.235.0.3.43", 1024, DH1024_P },
+-  { "2.16.840.1.101.3.4.1.22", "0.0.8.235.0.3.45", 2048, DH2048_P },
+-  { "2.16.840.1.101.3.4.1.42", "0.0.8.235.0.3.47", 4096, DH4096_P }
++  { "2.16.840.1.101.3.4.1.2",  "0.0.8.235.0.3.43", 1024, DH1024_P }
++  /*modopal poly-hdx 9004 - avacx call fail due to DH2048  is enabled 
++   * for AES 128 bit so commenting temporarily  AES-196 and AES-256 bit*/
++  //{ "2.16.840.1.101.3.4.1.22", "0.0.8.235.0.3.45", 2048, DH2048_P },
++  //{ "2.16.840.1.101.3.4.1.42", "0.0.8.235.0.3.47", 4096, DH4096_P }
+ };
+ 
+ static PConstString const H235Version3("0.0.8.235.0.3.24");
+diff --git a/src/h323/h323.cxx b/src/h323/h323.cxx
+index 52f6774..c5bef50 100644
+--- a/src/h323/h323.cxx
++++ b/src/h323/h323.cxx
+@@ -4419,6 +4419,14 @@ void H323Connection::OnSelectLogicalChannels()
+   switch (m_fastStartState) {
+     default : //FastStartDisabled :
+       SelectDefaultLogicalChannel(OpalMediaType::Audio(), H323Capability::DefaultAudioSessionID);
++#if OPAL_VIDEO
++      // Start video last so gets remaining bandwidth and not steal from other channels
++      if ((autoStartVideo&OpalMediaType::Transmit) != 0)
++        SelectDefaultLogicalChannel(OpalMediaType::Video(), H323Capability::DefaultVideoSessionID);
++      else {
++        PTRACE(4, "H245\tOnSelectLogicalChannels, video not auto-started");
++      }
++#endif
+ #if OPAL_T38_CAPABILITY
+       if ((autoStartFax&OpalMediaType::Transmit) != 0)
+         SelectDefaultLogicalChannel(OpalMediaType::Fax(), H323Capability::DefaultDataSessionID);
+@@ -4433,18 +4441,17 @@ void H323Connection::OnSelectLogicalChannels()
+         PTRACE(4, "H245\tOnSelectLogicalChannels, H.224 camera control not auto-started");
+       }
+ #endif
+-#if OPAL_VIDEO
+-      // Start video last so gets remaining bandwidth and not steal from other channels
+-      if ((autoStartVideo&OpalMediaType::Transmit) != 0)
+-        SelectDefaultLogicalChannel(OpalMediaType::Video(), H323Capability::DefaultVideoSessionID);
+-      else {
+-        PTRACE(4, "H245\tOnSelectLogicalChannels, video not auto-started");
+-      }
+-#endif
+       break;
+ 
+     case FastStartInitiate :
+       SelectFastStartChannels(H323Capability::DefaultAudioSessionID, true, true);
++#if OPAL_VIDEO
++      // Start video last so gets remaining bandwidth and not steal from other channels
++      if (autoStartVideo != OpalMediaType::DontOffer)
++        SelectFastStartChannels(H323Capability::DefaultVideoSessionID,
++        (autoStartVideo&OpalMediaType::Transmit) != 0,
++        (autoStartVideo&OpalMediaType::Receive) != 0);
++#endif
+ #if OPAL_T38_CAPABILITY
+       if (autoStartFax != OpalMediaType::DontOffer)
+         SelectFastStartChannels(H323Capability::DefaultDataSessionID,
+@@ -4457,18 +4464,18 @@ void H323Connection::OnSelectLogicalChannels()
+                                 (autoStartH224&OpalMediaType::Transmit) != 0,
+                                 (autoStartH224&OpalMediaType::Receive) != 0);
+ #endif
+-#if OPAL_VIDEO
+-      // Start video last so gets remaining bandwidth and not steal from other channels
+-      if (autoStartVideo != OpalMediaType::DontOffer)
+-        SelectFastStartChannels(H323Capability::DefaultVideoSessionID,
+-        (autoStartVideo&OpalMediaType::Transmit) != 0,
+-        (autoStartVideo&OpalMediaType::Receive) != 0);
+-#endif
+       break;
+ 
+     case FastStartResponse :
+       OpenFastStartChannel(H323Capability::DefaultAudioSessionID, H323Channel::IsTransmitter);
+       OpenFastStartChannel(H323Capability::DefaultAudioSessionID, H323Channel::IsReceiver);
++#if OPAL_VIDEO
++      // Start video last so gets remaining bandwidth and not steal from other channels
++      if ((autoStartVideo&OpalMediaType::Transmit) != 0)
++        OpenFastStartChannel(H323Capability::DefaultVideoSessionID, H323Channel::IsTransmitter);
++      if ((autoStartVideo&OpalMediaType::Receive) != 0)
++        OpenFastStartChannel(H323Capability::DefaultVideoSessionID, H323Channel::IsReceiver);
++#endif
+ #if OPAL_T38_CAPABILITY
+       if ((autoStartFax&OpalMediaType::Transmit) != 0)
+         OpenFastStartChannel(H323Capability::DefaultDataSessionID, H323Channel::IsTransmitter);
+@@ -4481,13 +4488,6 @@ void H323Connection::OnSelectLogicalChannels()
+       if ((autoStartH224&OpalMediaType::Receive) != 0)
+         OpenFastStartChannel(GetNextSessionID(OpalH224MediaType(), true), H323Channel::IsReceiver);
+ #endif
+-#if OPAL_VIDEO
+-      // Start video last so gets remaining bandwidth and not steal from other channels
+-      if ((autoStartVideo&OpalMediaType::Transmit) != 0)
+-        OpenFastStartChannel(H323Capability::DefaultVideoSessionID, H323Channel::IsTransmitter);
+-      if ((autoStartVideo&OpalMediaType::Receive) != 0)
+-        OpenFastStartChannel(H323Capability::DefaultVideoSessionID, H323Channel::IsReceiver);
+-#endif
+       break;
+   }
+ }
+@@ -4541,15 +4541,21 @@ void H323Connection::SelectFastStartChannels(unsigned sessionID,
+     }
+   }
+ }
+-
+ void H323Connection::SendFlowControlCommand(unsigned channelNumber, unsigned newBitRate)
+ {
+   H323ControlPDU pdu;
+   pdu.BuildFlowControlCommand(channelNumber,newBitRate);
+   WriteControlPDU(pdu);
+ }
++/*modopal */
++void H323Connection::SendFlowControlIndication(unsigned channelNumber, unsigned newBitRate)
++{
++  H323ControlPDU pdu;
++  pdu.BuildFlowControlIndication(channelNumber,newBitRate);
+ 
+-
++  WriteControlPDU(pdu);
++}
++/*end modopal */
+ PBoolean H323Connection::OpenLogicalChannel(const H323Capability & capability,
+                                         unsigned sessionID,
+                                         H323Channel::Directions dir)
+@@ -5079,8 +5085,11 @@ void H323Connection::OnClosedLogicalChannel(const H323Channel & channel)
+ void H323Connection::OnLogicalChannelFlowControl(H323Channel * channel,
+                                                  long bitRateRestriction)
+ {
+-  if (channel != NULL)
++  if (channel != NULL){
+     channel->OnFlowControl(bitRateRestriction);
++    /*modopal*/
++    SendFlowControlIndication(channel->GetNumber(),bitRateRestriction);
++  }
+ }
+ 
+ 
+diff --git a/src/h323/h323pdu.cxx b/src/h323/h323pdu.cxx
+index 877543c..a20fe4e 100644
+--- a/src/h323/h323pdu.cxx
++++ b/src/h323/h323pdu.cxx
+@@ -1753,6 +1753,21 @@ H245_FlowControlCommand & H323ControlPDU::BuildFlowControlCommand(unsigned chann
+  
+   return flowControlCommand;
+ }
++/*modopal*/
++H245_FlowControlIndication & H323ControlPDU::BuildFlowControlIndication(unsigned channelNumber, unsigned maxBitRate)
++{
++  H245_FlowControlIndication & flowControlIndication = Build(H245_IndicationMessage::e_flowControlIndication);
++  flowControlIndication .m_scope.SetTag(H245_FlowControlIndication_scope::e_logicalChannelNumber);
++  PASN_Integer & logChanNumPDU = flowControlIndication.m_scope;
++  logChanNumPDU = channelNumber;
++
++  flowControlIndication .m_restriction.SetTag(H245_FlowControlIndication_restriction::e_maximumBitRate);
++  PASN_Integer & maxBitRatePDU = flowControlIndication .m_restriction;
++  maxBitRatePDU = maxBitRate;
++ 
++  return flowControlIndication;
++}
++/*end modopal*/
+ 
+ 
+ H245_MiscellaneousIndication & H323ControlPDU::BuildMiscellaneousIndication(unsigned channelNumber, unsigned type)
+diff --git a/src/opal/connection.cxx b/src/opal/connection.cxx
+index e793b15..b7825e6 100644
+--- a/src/opal/connection.cxx
++++ b/src/opal/connection.cxx
+@@ -867,6 +867,8 @@ void OpalConnection::CloseMediaStreams()
+     for (OpalMediaStreamPtr mediaStream(mediaStreams, PSafeReference); mediaStream != NULL; ++mediaStream) {
+       if (mediaStream->IsOpen()) {
+         someOpen = true;
++        PTRACE(4, "Media stream closing.");
++
+         mediaStream->Close();
+       }
+     }
+diff --git a/src/opal/endpoint.cxx b/src/opal/endpoint.cxx
+index efd084d..4731554 100644
+--- a/src/opal/endpoint.cxx
++++ b/src/opal/endpoint.cxx
+@@ -57,7 +57,7 @@ OpalEndPoint::OpalEndPoint(OpalManager & mgr,
+   : manager(mgr)
+   , prefixName(prefix)
+   , m_attributes(attributes)
+-  , m_maxSizeUDP(4096)
++  , m_maxSizeUDP(8192)
+   , productInfo(mgr.GetProductInfo())
+   , defaultLocalPartyName(manager.GetDefaultUserName())
+   , defaultDisplayName(manager.GetDefaultDisplayName())
+diff --git a/src/opal/manager.cxx b/src/opal/manager.cxx
+index abaced3..920b67b 100644
+--- a/src/opal/manager.cxx
++++ b/src/opal/manager.cxx
+@@ -158,7 +158,7 @@ PString OpalGetVersion()
+ #define BetaCode    "beta"
+ #define ReleaseCode "."
+ 
+-  return psprintf("%u.%u%s%u (svn:%u)", MAJOR_VERSION, MINOR_VERSION, BUILD_TYPE, BUILD_NUMBER, SVN_REVISION);
++  return psprintf("%u.%u%s%u ", MAJOR_VERSION, MINOR_VERSION, BUILD_TYPE, BUILD_NUMBER);
+ }
+ 
+ 
+diff --git a/src/opal/mediastrm.cxx b/src/opal/mediastrm.cxx
+index 898eb17..575ea61 100644
+--- a/src/opal/mediastrm.cxx
++++ b/src/opal/mediastrm.cxx
+@@ -258,9 +258,11 @@ PBoolean OpalMediaStream::Close()
+   UnlockReadWrite();
+ 
+   connection.OnClosedMediaStream(*this);
++  
++  PTRACE(4, "Media\t SetPatch NULL  " << *this);
+   SetPatch(NULL);
+ 
+-  PTRACE(5, "Media\tClosed stream " << *this);
++  PTRACE(4, "Media\tClosed stream " << *this);
+ 
+   connection.RemoveMediaStream(*this);
+   // Don't do anything after above as object may be deleted
+@@ -1306,7 +1308,10 @@ PBoolean OpalAudioMediaStream::SetDataSize(PINDEX dataSize, PINDEX frameTime)
+             "frameTime=" << frameTime << ", "
+             "clock=" << mediaFormat.GetClockRate() << ", "
+             "buffers=" << bufferCount << 'x' << frameSize);
+-
++  /*modopal*/
++  int bufSize=(frameSize>dataSize)?frameSize:dataSize;
++  //return OpalMediaStream::SetDataSize(adjustedSize, frameTime) &&
++   //      ((PSoundChannel *)m_channel)->SetBuffers(bufSize, bufferCount);
+   return OpalMediaStream::SetDataSize(adjustedSize, frameTime) &&
+          ((PSoundChannel *)m_channel)->SetBuffers(frameSize, bufferCount);
+ }
+diff --git a/src/opal/patch.cxx b/src/opal/patch.cxx
+index 91f568f..acc5eba 100644
+--- a/src/opal/patch.cxx
++++ b/src/opal/patch.cxx
+@@ -65,6 +65,7 @@ OpalMediaPatch::OpalMediaPatch(OpalMediaStream & src)
+   PTRACE(5, "Patch\tCreated media patch " << this << ", session " << src.GetSessionID());
+   src.SetPatch(this);
+   m_source.SafeReference();
++  m_SafeRWLock=m_SafeRLock=0;
+ }
+ 
+ 
+@@ -72,7 +73,7 @@ OpalMediaPatch::~OpalMediaPatch()
+ {
+   StopThread();
+   m_source.SafeDereference();
+-  PTRACE(5, "Patch\tDestroyed media patch " << this);
++  PTRACE(4, "Patch\tDestroyed media patch " << this);
+ }
+ 
+ 
+@@ -175,7 +176,9 @@ void OpalMediaPatch::StopThread()
+     PAssert(thread->WaitForTermination(10000), "Media patch thread not terminated.");
+   }
+ 
++  PTRACE(4, "Patch\tDeleting thread  " << *this);
+   delete thread;
++  PTRACE(4, "Patch\tDeleted  thread  " << *this);
+ }
+ 
+ 
+@@ -183,7 +186,8 @@ void OpalMediaPatch::Close()
+ {
+   PTRACE(3, "Patch\tClosing media patch " << *this);
+ 
+-  if (!LockReadWrite())
++#if 0
++  if (!LockReadWrite()) //pgowda
+       return;
+ 
+   if (m_bypassFromPatch != NULL)
+@@ -208,10 +212,11 @@ void OpalMediaPatch::Close()
+       // Se we unlock it, and wait for it to do it in the other thread.
+       PThread::Sleep(10);
+     }
+-    if (!LockReadWrite())
++    if (!LockReadWrite())/*TODO locking in while loop !!!*/
+       return;
+   }
+   UnlockReadWrite();
++#endif
+ 
+   StopThread();
+ }
+@@ -220,23 +225,29 @@ void OpalMediaPatch::Close()
+ PBoolean OpalMediaPatch::AddSink(const OpalMediaStreamPtr & sinkStream)
+ {
+   PSafeLockReadWrite mutex(*this);
+-
+-  if (PAssertNULL(sinkStream) == NULL)
++    m_SafeRWLock++;
++  if (PAssertNULL(sinkStream) == NULL){
++    m_SafeRWLock--;
+     return false;
++  }
+ 
+   PAssert(sinkStream->IsSink(), "Attempt to set source stream as sink!");
+ 
+   if (!sinkStream->SetPatch(this)) {
+     PTRACE(2, "Patch\tCould not set patch in stream " << *sinkStream);
++    m_SafeRWLock--;
+     return false;
+   }
+ 
+   Sink * sink = new Sink(*this, sinkStream);
+   m_sinks.Append(sink);
+-  if (!sink->CreateTranscoders())
++  if (!sink->CreateTranscoders()){
++    m_SafeRWLock--;
+     return false;
++  }
+ 
+   EnableJitterBuffer();
++  m_SafeRWLock--;
+   return true;
+ }
+ 
+@@ -244,13 +255,17 @@ PBoolean OpalMediaPatch::AddSink(const OpalMediaStreamPtr & sinkStream)
+ bool OpalMediaPatch::ResetTranscoders()
+ {
+   PSafeLockReadWrite mutex(*this);
++    m_SafeRWLock++;
+ 
+   for (PList<Sink>::iterator s = m_sinks.begin(); s != m_sinks.end(); ++s) {
+-    if (!s->CreateTranscoders())
++    if (!s->CreateTranscoders()){
++    m_SafeRWLock--;
+       return false;
+     }
++  }
+ 
+   m_transcoderChanged = true;
++    m_SafeRWLock--;
+   return true;
+ }
+ 
+@@ -382,15 +397,16 @@ void OpalMediaPatch::RemoveSink(const OpalMediaStream & stream)
+ {
+   PTRACE(3, "Patch\tRemoving sink " << stream << " from " << *this);
+ 
++ // return ;//deadlock pgowda
+   bool closeSource = false;
+ 
+-  if (!LockReadWrite())
+-    return;
++  //if (!LockReadWrite())//pgowda
++  //  return;
+ 
+   for (PList<Sink>::iterator s = m_sinks.begin(); s != m_sinks.end(); ++s) {
+     if (s->m_stream == &stream) {
+       m_sinks.erase(s);
+-      PTRACE(5, "Patch\tRemoved sink " << stream << " from " << *this);
++      PTRACE(4, "Patch\tRemoved sink " << stream << " from " << *this);
+       break;
+     }
+   }
+@@ -401,10 +417,11 @@ void OpalMediaPatch::RemoveSink(const OpalMediaStream & stream)
+       m_bypassFromPatch->SetBypassPatch(NULL);
+   }
+ 
+-  UnlockReadWrite();
++  //UnlockReadWrite();
+ 
+   if (closeSource  && m_source.GetPatch() == this)
+     m_source.Close();
++  PTRACE(3, "Patch\tRemoved sink " << stream << " from " << *this);
+ }
+ 
+ 
+@@ -530,6 +547,7 @@ OpalMediaPatch::Sink::~Sink()
+ void OpalMediaPatch::AddFilter(const PNotifier & filter, const OpalMediaFormat & stage)
+ {
+   PSafeLockReadWrite mutex(*this);
++    m_SafeRWLock++;
+ 
+   if (m_source.GetMediaFormat().GetMediaType() != stage.GetMediaType())
+     return;
+@@ -538,25 +556,35 @@ void OpalMediaPatch::AddFilter(const PNotifier & filter, const OpalMediaFormat &
+   for (PList<Filter>::iterator f = m_filters.begin(); f != m_filters.end(); ++f) {
+     if (f->m_notifier == filter && f->m_stage == stage) {
+       PTRACE(4, "OpalCon\tFilter already added for stage " << stage);
++    m_SafeRWLock--;
+       return;
+     }
+   }
+   m_filters.Append(new Filter(filter, stage));
++    m_SafeRWLock--;
+ }
+ 
+ 
+ PBoolean OpalMediaPatch::RemoveFilter(const PNotifier & filter, const OpalMediaFormat & stage)
+ {
++ 
++ return true;//deadlock //pgowda
++ PTRACE(4, "OpalCon\t Trying to lock PSafeLockReadWrite in RemoveFilter  RWLock: " << m_SafeRWLock << " RLock: "<<m_SafeRLock);
+   PSafeLockReadWrite mutex(*this);
++    m_SafeRWLock++;
++  
++  PTRACE(4, "OpalCon\t locked PSafeLockReadWrite in RemoveFilter ");
+ 
+   for (PList<Filter>::iterator f = m_filters.begin(); f != m_filters.end(); ++f) {
+     if (f->m_notifier == filter && f->m_stage == stage) {
+       m_filters.erase(f);
++    m_SafeRWLock--;
+       return true;
+     }
+   }
+ 
+   PTRACE(4, "OpalCon\tNo filter to remove for stage " << stage);
++    m_SafeRWLock--;
+   return false;
+ }
+ 
+@@ -579,6 +607,7 @@ void OpalMediaPatch::FilterFrame(RTP_DataFrame & frame,
+ bool OpalMediaPatch::UpdateMediaFormat(const OpalMediaFormat & mediaFormat)
+ {
+   PSafeLockReadOnly mutex(*this);
++    m_SafeRLock--;
+ 
+   bool atLeastOne = m_source.InternalUpdateMediaFormat(mediaFormat);
+ 
+@@ -590,6 +619,7 @@ bool OpalMediaPatch::UpdateMediaFormat(const OpalMediaFormat & mediaFormat)
+   }
+ 
+   PTRACE_IF(2, !atLeastOne, "Patch\tCould not update media format for any stream/transcoder in " << *this);
++    m_SafeRLock--;
+   return atLeastOne;
+ }
+ 
+@@ -665,6 +695,7 @@ void OpalMediaPatch::InternalOnMediaCommand2(OpalMediaCommand * command)
+ bool OpalMediaPatch::InternalSetPaused(bool pause, bool fromUser)
+ {
+   PSafeLockReadOnly mutex(*this);
++    m_SafeRLock++;
+ 
+   bool atLeastOne = m_source.InternalSetPaused(pause, fromUser, true);
+ 
+@@ -673,6 +704,7 @@ bool OpalMediaPatch::InternalSetPaused(bool pause, bool fromUser)
+       atLeastOne = true;
+   }
+ 
++  m_SafeRLock--;
+   return atLeastOne;
+ }
+ 
+@@ -691,6 +723,7 @@ bool OpalMediaPatch::OnStartMediaPatch()
+ bool OpalMediaPatch::EnableJitterBuffer(bool enab)
+ {
+   PSafeLockReadOnly mutex(*this);
++    m_SafeRLock++;
+ 
+   if (m_bypassToPatch != NULL)
+     enab = false;
+@@ -699,15 +732,19 @@ bool OpalMediaPatch::EnableJitterBuffer(bool enab)
+   for (s = m_sinks.begin(); s != m_sinks.end(); ++s) {
+     if (s->m_stream->EnableJitterBuffer(enab)) {
+       m_source.EnableJitterBuffer(false);
++    m_SafeRLock--;
+       return true;
+     }
+   }
+ 
+   for (s = m_sinks.begin(); s != m_sinks.end(); ++s) {
+-    if (m_source.EnableJitterBuffer(enab && s->m_stream->IsSynchronous()))
++    if (m_source.EnableJitterBuffer(enab && s->m_stream->IsSynchronous())){
++    m_SafeRLock--;
+       return true;
+     }
++  }
+ 
++    m_SafeRLock--;
+   return false;
+ }
+ 
+@@ -796,19 +833,28 @@ void OpalMediaPatch::Main()
+ 
+ bool OpalMediaPatch::SetBypassPatch(const OpalMediaPatchPtr & patch)
+ {
+-  PSafeLockReadWrite mutex(*this);
++  PSafeLockReadWrite mutex(*this); //pgowda
++    m_SafeRWLock++;
++
++  if (!PAssert(m_bypassFromPatch == NULL, PLogicError)){
++    m_SafeRWLock--;
+    
+-  if (!PAssert(m_bypassFromPatch == NULL, PLogicError))
+       return false; // Can't be both!
++  }
++
++  if (m_bypassToPatch == patch){
++    m_SafeRWLock--;
+       
+-  if (m_bypassToPatch == patch)
+     return true; // Already set
++  }
+ 
+   PTRACE(4, "Patch\tSetting media patch bypass to " << patch << " on " << *this);
+ 
+   if (m_bypassToPatch != NULL) {
+-    if (!PAssert(m_bypassToPatch->m_bypassFromPatch == this, PLogicError))
++    if (!PAssert(m_bypassToPatch->m_bypassFromPatch == this, PLogicError)){
++     m_SafeRWLock--;
+       return false;
++    }
+ 
+     m_bypassToPatch->m_bypassFromPatch.SetNULL();
+     m_bypassToPatch->m_bypassEnded.Signal();
+@@ -818,8 +864,10 @@ bool OpalMediaPatch::SetBypassPatch(const OpalMediaPatchPtr & patch)
+   }
+ 
+   if (patch != NULL) {
+-    if (!PAssert(patch->m_bypassFromPatch == NULL, PLogicError))
++    if (!PAssert(patch->m_bypassFromPatch == NULL, PLogicError)){
++        m_SafeRWLock--;
+       return false;
++    }
+ 
+     patch->m_bypassFromPatch = this;
+   }
+@@ -839,6 +887,7 @@ bool OpalMediaPatch::SetBypassPatch(const OpalMediaPatchPtr & patch)
+     patch->EnableJitterBuffer(false);
+   }
+ 
++    m_SafeRWLock--;
+   return true;
+ }
+ 
+diff --git a/src/rtp/rtp_session.cxx b/src/rtp/rtp_session.cxx
+index 8df715a..a5fe25e 100644
+--- a/src/rtp/rtp_session.cxx
++++ b/src/rtp/rtp_session.cxx
+@@ -60,7 +60,7 @@ const unsigned SecondsFrom1900to1970 = (70*365+17)*24*60*60U;
+ #define RTP_AUDIO_RX_BUFFER_SIZE 0x4000   // 16kb
+ #define RTP_DATA_TX_BUFFER_SIZE  0x2000   // 8kb
+ #define RTP_CTRL_BUFFER_SIZE     0x1000   // 4kb
+-
++#define RTP_UNREACHABLE_SECONDS  5
+ 
+ /////////////////////////////////////////////////////////////////////////////
+ /**A descendant of the OpalJitterBuffer that reads RTP_DataFrame instances
+@@ -141,7 +141,7 @@ OpalRTPSession::OpalRTPSession(const Init & init)
+   , m_timeUnits(m_isAudio ? 8 : 90)
+   , m_toolName(PProcess::Current().GetName())
+   , m_maxNoReceiveTime(init.m_connection.GetEndPoint().GetManager().GetNoMediaTimeout())
+-  , m_maxNoTransmitTime(0, 10)          // Sending data for 10 seconds, ICMP says still not there
++  , m_maxNoTransmitTime(0, RTP_UNREACHABLE_SECONDS)          // Sending data for 10 seconds, ICMP says still not there //modopal pgowda
+ #if OPAL_RTP_FEC
+   , m_redundencyPayloadType(RTP_DataFrame::IllegalPayloadType)
+   , m_ulpFecPayloadType(RTP_DataFrame::IllegalPayloadType)
+@@ -2211,7 +2211,7 @@ bool OpalRTPSession::HandleUnreachable(PTRACE_PARAM(const char * channelName))
+     return true;
+   }
+ 
+-  if (m_noTransmitErrors < 10 || m_noTransmitTimer.IsRunning())
++  if (m_noTransmitErrors < RTP_UNREACHABLE_SECONDS || m_noTransmitTimer.IsRunning())
+     return true;
+ 
+   PTRACE(2, "RTP_UDP\tSession " << m_sessionId << ", " << channelName << ' '
+diff --git a/src/sip/sdp.cxx b/src/sip/sdp.cxx
+index 19c2f16..0256685 100644
+--- a/src/sip/sdp.cxx
++++ b/src/sip/sdp.cxx
+@@ -423,6 +423,7 @@ bool SDPMediaFormat::PostDecode(const OpalMediaFormatList & mediaFormats, unsign
+   if (m_encodingName.IsEmpty())
+     m_encodingName = m_mediaFormat.GetEncodingName();
+ 
++
+   if (m_mediaFormat.IsEmpty()) {
+     PTRACE(5, "SDP\tMatching \"" << m_encodingName << "\", pt=" << m_payloadType << ", clock=" << m_clockRate);
+     for (OpalMediaFormatList::const_iterator iterFormat = mediaFormats.FindFormat(m_payloadType, m_clockRate, m_encodingName, "sip");
+@@ -430,10 +431,33 @@ bool SDPMediaFormat::PostDecode(const OpalMediaFormatList & mediaFormats, unsign
+          iterFormat = mediaFormats.FindFormat(m_payloadType, m_clockRate, m_encodingName, "sip", iterFormat)) {
+       OpalMediaFormat adjustedFormat = *iterFormat;
+       SetMediaFormatOptions(adjustedFormat);
++      /*modopal*/
++      /*TODO Here special care is taken to avoid H.264-high getting matched H.264-1/0 */
++      PStringArray tokens=m_fmtp.Tokenise(';',false);
++      PStringArray value =tokens[0].Tokenise('=',false);
++      if("profile-level-id"==value[0]){
++          int pos,len;
++          PTRACE(4,value[0]<<" = "<<value[1]);
++          if (value[1].FindRegEx("42",pos,len)){
++              PTRACE(4,"Baseline profile");
++              if (*iterFormat=="H.264-High"){
++                PTRACE(4,"H.264 Baseline profile did not match with High profile");
++                continue;
++              }
++          }
++          if (value[1].FindRegEx("64",pos,len)){
++              PTRACE(4,"High profile");
++              if (*iterFormat!="H.264-High"){
++                PTRACE(4,"H.264 High profile did not match with Baseline profile");
++                continue;
++              }
++          }
++      }
++      /*end modopal*/
+       // skip formats whose fmtp don't match options
+       if (iterFormat->ValidateMerge(adjustedFormat)) {
+-        PTRACE(3, "SDP\tMatched payload type " << m_payloadType << " to " << *iterFormat);
+         m_mediaFormat = adjustedFormat;
++        PTRACE(3, "SDP\tMatched payload type " << m_payloadType << " to " << *iterFormat<<" formatName: "<<m_mediaFormat.GetName());
+         break;
+       }
+ 
+diff --git a/src/sip/sipep.cxx b/src/sip/sipep.cxx
+index 4b647a6..da2ef1b 100644
+--- a/src/sip/sipep.cxx
++++ b/src/sip/sipep.cxx
+@@ -251,6 +251,13 @@ OpalTransportPtr SIPEndPoint::GetTransport(const SIPTransactionOwner & transacto
+                                             SIP_PDU::StatusCodes & reason)
+ {
+   OpalTransportAddress remoteAddress = transactor.GetRemoteTransportAddress();
++  std::size_t found = m_transportListener.find("tcp");
++  if ((found!=std::string::npos)&& (remoteAddress.theArray[0] == 'u')){
++     PTRACE(1,"Overriding udp with tcp registration: "<< remoteAddress);
++      remoteAddress.theArray[0]='t';
++      remoteAddress.theArray[1]='c';
++      remoteAddress.theArray[2]='p';
++  }
+   if (remoteAddress.IsEmpty()) {
+     for (PSafePtr<SIPHandler> handler = activeSIPHandlers.GetFirstHandler(); ; ++handler) {
+       if (handler == NULL) {
+@@ -316,6 +323,7 @@ OpalTransportPtr SIPEndPoint::GetTransport(const SIPTransactionOwner & transacto
+ 
+       if (transport == NULL) {
+         OpalTransportAddress localAddress(localInterface, 0, remoteAddress.GetProtoPrefix());
++        PTRACE(4,"listeners: " << listeners);
+         for (OpalListenerList::iterator listener = listeners.begin(); listener != listeners.end(); ++listener) {
+           if ((transport = listener->CreateTransport(localAddress, remoteAddress)) != NULL)
+             break;

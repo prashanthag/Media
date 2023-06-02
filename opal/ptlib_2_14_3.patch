@@ -1,0 +1,82 @@
+diff --git a/include/ptlib/array.h b/include/ptlib/array.h
+index aedfc1e..600ec69 100644
+--- a/include/ptlib/array.h
++++ b/include/ptlib/array.h
+@@ -223,6 +223,8 @@ class PAbstractArray : public PContainer
+     );
+   //@}
+ 
++    /// Pointer to the allocated block of memory.
++    char * theArray;
+   protected:
+     PBoolean InternalSetSize(PINDEX newSize, PBoolean force);
+ 
+@@ -243,8 +245,6 @@ class PAbstractArray : public PContainer
+     /// Size of an element in bytes.
+     PINDEX elementSize;
+ 
+-    /// Pointer to the allocated block of memory.
+-    char * theArray;
+ 
+     /// Flag indicating the array was allocated on the heap.
+     PBoolean allocatedDynamically;
+diff --git a/plugins/sound_alsa/sound_alsa.cxx b/plugins/sound_alsa/sound_alsa.cxx
+index a5643a7..b936f42 100644
+--- a/plugins/sound_alsa/sound_alsa.cxx
++++ b/plugins/sound_alsa/sound_alsa.cxx
+@@ -328,6 +328,7 @@ PBoolean PSoundChannelALSA::Close()
+ 
+   PTRACE(3, "ALSA\tClosing \"" << device << "\", card=" << card_nr);
+   snd_pcm_close(pcm_handle);
++  PTRACE(3, "ALSA\tClosed \"" << device << "\", card=" << card_nr);
+   pcm_handle = NULL;
+   os_handle = -1;
+   isInitialised = false;
+diff --git a/src/ptlib/common/osutils.cxx b/src/ptlib/common/osutils.cxx
+index ad69fa5..e58dc62 100644
+--- a/src/ptlib/common/osutils.cxx
++++ b/src/ptlib/common/osutils.cxx
+@@ -2230,12 +2230,11 @@ PString PProcess::GetVersion(PBoolean full) const
+ 
+ PString PProcess::GetLibVersion()
+ {
+-  return psprintf("%u.%u%s%u (svn:%u)",
++  return psprintf("%u.%u%s%u ",
+                   MAJOR_VERSION,
+                   MINOR_VERSION,
+                   VersionStatus[BUILD_TYPE],
+-                  BUILD_NUMBER,
+-                  SVN_REVISION);
++                  BUILD_NUMBER);
+ }
+ 
+ 
+diff --git a/src/ptlib/unix/osutil.cxx b/src/ptlib/unix/osutil.cxx
+index 42de0c7..b41456d 100644
+--- a/src/ptlib/unix/osutil.cxx
++++ b/src/ptlib/unix/osutil.cxx
+@@ -729,6 +729,9 @@ PBoolean PFile::Open(OpenMode mode, OpenOptions opt, PFileInfo::Permissions perm
+         break;
+       case WriteOnly :
+         oflags |= O_WRONLY;
++	/* modopal appending otherwise it leads to null characters appended 
++	 at the beginning of the file  while logrorate */
++        oflags |= O_APPEND;
+         if (opt == ModeDefault)
+           opt = Create|Truncate;
+         break;
+diff --git a/src/ptlib/unix/tlibthrd.cxx b/src/ptlib/unix/tlibthrd.cxx
+index 90dd7fc..d5a014a 100644
+--- a/src/ptlib/unix/tlibthrd.cxx
++++ b/src/ptlib/unix/tlibthrd.cxx
+@@ -789,7 +789,9 @@ void PThread::Terminate()
+   // don't use PThread::Current, as the thread may already not be in the
+   // active threads list
+   if (m_threadId == pthread_self()) {
+-    pthread_exit(0);
++  PTRACE(2, "PTLib\t pgowda_tlib_error  m_threadId: "<<m_threadId<<" pthread_self():"<<pthread_self());
++  /*commenting below as it sometimes it matches differet threadId and dies immmaturely and leads to deadlock which is difficult to debug*/
++    //pthread_exit(0);
+     return;   // keeps compiler happy
+   }
+ 
